@@ -1,0 +1,5 @@
+jwt:
+  secret:
+    key: YTKqI3c7rqWAJMbrKYiOdmhNO3+g+P/eGjrUDyWFQIw=
+  access-expiration-millis: 1800000 # 30분
+  refresh-expiration-millis: 1209600000 # 14일

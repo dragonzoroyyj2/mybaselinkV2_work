@@ -29,15 +29,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.mybaselinkV2.app.service.StockListService;
 
-/**
- * 📊 StockListApiController - 주식 종목 리스트 API
- *
- * ✅ 역할:
- *   - /api/stock/list → 목록 조회 (검색 + 페이징)
- *   - /api/stock/excel → 엑셀 다운로드
- * ✅ 연동:
- *   stockList.html & commonUnifiedList_op.js
- */
 @RestController
 @RequestMapping("/api/stock")
 public class StockListController {
@@ -57,13 +48,14 @@ public class StockListController {
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "server") String mode,
-            @RequestParam(defaultValue = "true") boolean pagination
+            @RequestParam(defaultValue = "true") boolean pagination,
+            @RequestParam(defaultValue = "web") String env
     ) {
         try {
             List<Map<String, Object>> all = service.getStockList();
             List<Map<String, Object>> filtered = new ArrayList<>(all);
 
-            // 검색어 필터
+            // 검색어 필터: 환경 구분 없이 모든 필드 검색
             if (search != null && !search.isBlank()) {
                 String s = search.toLowerCase(Locale.ROOT);
                 filtered = filtered.stream()

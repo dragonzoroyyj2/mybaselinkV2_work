@@ -1,5 +1,45 @@
-jwt:
-  secret:
-    key: YTKqI3c7rqWAJMbrKYiOdmhNO3+g+P/eGjrUDyWFQIw=
-  access-expiration-millis: 1800000 # 30분
-  refresh-expiration-millis: 1209600000 # 14일
+spring:
+  profiles:
+    active: inmemory
+  application:
+    name: MyBaseLinkV2
+  thymeleaf:
+    prefix: classpath:/templates/
+    suffix: .html
+    cache: false
+    mode: HTML
+    encoding: UTF-8
+  web:
+    resources:
+      static-locations: classpath:/static/,classpath:/public/,classpath:/resources/
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 20MB
+  devtools:
+    restart:
+      enabled: true
+    livereload:
+      enabled: true
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+  error:
+    whitelabel:
+      enabled: false
+
+logging:
+  level:
+    org.hibernate.SQL: ERROR
+    org.hibernate.type.descriptor.sql.BasicBinder: ERROR
+    com.mybaselink: DEBUG
+    org.springframework: INFO
+
+application:
+  security:
+    jwt:
+      secret-key: MyNovaSecretKeyChangeThisToSomethingStrong123!
+      expiration: 3600000

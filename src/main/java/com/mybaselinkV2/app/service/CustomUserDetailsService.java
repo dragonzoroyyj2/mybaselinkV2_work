@@ -1,41 +1,47 @@
 package com.mybaselinkV2.app.service;
 
-import org.springframework.security.core.userdetails.User;
+import java.util.Collections;
+
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
-import java.util.Collections;
+import com.mybaselinkV2.app.entity.LoginUserEntity;
+import com.mybaselinkV2.app.repository.LoginUserRepository;
 
+/**
+ * 🔑 CustomUserDetailsService
+ * - Spring Security 인증용
+ * - DB에서 사용자 조회
+ */
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
 
-    // 임시 인코더
-    private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
-    
-    // (기존 userService 필드 제거 또는 주석 처리)
-    // private final LoginUserService userService;
+    private final LoginUserRepository loginUserRepository;
 
-    // (기존 생성자 제거 또는 주석 처리)
-    // public CustomUserDetailsService(LoginUserService userService) {
-    //     this.userService = userService;
-    // }
+    public CustomUserDetailsService(LoginUserRepository loginUserRepository) {
+        this.loginUserRepository = loginUserRepository;
+    }
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        // DB 대신 임시로 메모리에 유저 정보 생성
-        if ("test".equals(username)) {
-            // 패스워드는 임시로 인코딩된 문자열을 사용
-            // "1234"를 BCrypt로 인코딩한 값
-            String encodedPassword = encoder.encode("1234"); 
-            
-            return User.withUsername("test")
-                    .password(encodedPassword)
-                    .authorities(Collections.singleton(() -> "ROLE_ADMIN"))
-                    .build();
-        }
-        throw new UsernameNotFoundException("사용자를 찾을 수 없습니다: " + username);
+        LoginUserEntity user = loginUserRepository.findByUsername(username)
+                .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다: " + username));
+
+        // 권한 세팅
+        GrantedAuthority authority = new SimpleGrantedAuthority(user.getRole());
+
+        return org.springframework.security.core.userdetails.User.builder()
+                .username(user.getUsername())
+                .password(user.getPassword())
+                .authorities(Collections.singletonList(authority))
+                .accountExpired(false)
+                .accountLocked(false)
+                .credentialsExpired(false)
+                .disabled(false)
+                .build();
     }
 }

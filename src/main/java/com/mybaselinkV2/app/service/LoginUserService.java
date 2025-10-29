@@ -1,35 +1,51 @@
 package com.mybaselinkV2.app.service;
 
-import com.mybaselinkV2.app.entity.LoginUserEntity;
+import java.util.Map;
+import java.util.Optional;
+
 import org.springframework.stereotype.Service;
 
+import com.mybaselinkV2.app.entity.LoginUserEntity;
+import com.mybaselinkV2.app.entity.UserEntity;
+import com.mybaselinkV2.app.repository.LoginUserRepository;
+import com.mybaselinkV2.app.repository.UserRepository;
+
+/**
+ * 👤 LoginUserService
+ * - 로그인/사용자 정보 조회 전용 서비스
+ */
 @Service
 public class LoginUserService {
 
-    // 기존의 LoginUserRepository 필드 제거 또는 주석 처리
-    // private final LoginUserRepository userRepository;
+    private final LoginUserRepository loginUserRepository;
+    private final UserRepository userRepository;
 
-    // 기존의 생성자 제거 또는 주석 처리
-    // public LoginUserService(LoginUserRepository userRepository) {
-    //     this.userRepository = userRepository;
-    // }
+    public LoginUserService(LoginUserRepository loginUserRepository,
+                            UserRepository userRepository) {
+        this.loginUserRepository = loginUserRepository;
+        this.userRepository = userRepository;
+    }
 
     /**
-     * 🔹 username 기반 사용자 조회 (임시 메모리 구현)
-     *
-     * @param username 로그인 ID
-     * @return LoginUserEntity 또는 null
+     * 사용자 프로필 조회
+     * - LoginUserEntity 또는 UserEntity 기반
      */
-    public LoginUserEntity findByUsername(String username) {
-        if ("test".equals(username)) {
-            LoginUserEntity user = new LoginUserEntity();
-            user.setUsername("test");
-            user.setName("테스트유저");
-            user.setEmail("testuser@example.com");
-            user.setPassword("$2a$10$wN9iL6b1y2a4q5r6s7t8u9v0w.1.x2y3.z4"); // BCrypt로 인코딩된 "1234"
-            user.setRole("ROLE_ADMIN");
-            return user;
+    public Optional<Map<String, Object>> findUserProfile(String username) {
+        Optional<LoginUserEntity> loginUserOpt = loginUserRepository.findByUsername(username);
+        if (loginUserOpt.isPresent()) {
+            LoginUserEntity u = loginUserOpt.get();
+            return Optional.of(Map.of(
+                    "username", u.getUsername(),
+                    "role", u.getRole()
+            ));
         }
-        return null;
+
+        Optional<UserEntity> userOpt = userRepository.findByUsername(username);
+        return userOpt.map(u -> Map.of(
+                "username", u.getUsername(),
+                "fullName", u.getFullName(),
+                "email", u.getEmail(),
+                "role", u.getRole()
+        ));
     }
 }

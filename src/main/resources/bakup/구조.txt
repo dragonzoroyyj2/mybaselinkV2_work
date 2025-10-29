@@ -1,0 +1,33 @@
+MyBaseLinkV2/
+├─ src/
+│  ├─ main/
+│  │  ├─ java/com/mybaselinkV2/app/
+│  │  │  ├─ MyBaseLinkV2Application.java
+│  │  │  ├─ config/
+│  │  │  │  └─ SecurityConfig.java
+│  │  │  ├─ controller/
+│  │  │  │  └─ AuthController.java
+│  │  │  ├─ entity/
+│  │  │  │  ├─ LoginUserEntity.java
+│  │  │  │  ├─ RoleEntity.java
+│  │  │  │  ├─ JwtTokenEntity.java
+│  │  │  │  └─ UserRoleEntity.java
+│  │  │  ├─ repository/
+│  │  │  │  ├─ LoginUserRepository.java
+│  │  │  │  ├─ RoleRepository.java
+│  │  │  │  └─ JwtTokenRepository.java
+│  │  │  ├─ service/
+│  │  │  │  ├─ AuthService.java
+│  │  │  │  ├─ CustomUserDetailsService.java
+│  │  │  │  ├─ LoginUserService.java
+│  │  │  │  └─ DataInitService.java
+│  │  │  └─ jwt/
+│  │  │     └─ JwtTokenProvider.java
+│  │  └─ resources/
+│  │     ├─ application.yml
+│  │     ├─ application-inmemory.yml
+│  │     ├─ templates/
+│  │     │  └─ login.html
+│  │     └─ static/
+│  │        └─ (css, js 등)
+├─ pom.xml

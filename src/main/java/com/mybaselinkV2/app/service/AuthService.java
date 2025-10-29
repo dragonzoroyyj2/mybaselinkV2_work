@@ -1,69 +1,73 @@
 package com.mybaselinkV2.app.service;
 
-import com.mybaselinkV2.app.entity.JwtTokenEntity;
-import jakarta.annotation.PostConstruct;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.time.Instant;
+import java.util.Optional;
+
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
+import com.mybaselinkV2.app.entity.JwtTokenEntity;
+import com.mybaselinkV2.app.repository.JwtTokenRepository;
 
 @Service
 public class AuthService {
 
-    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
+    private final JwtTokenRepository tokenRepository;
 
-    private ConcurrentHashMap<String, Instant> validRefreshTokens = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-
-    @PostConstruct
-    public void init() {
-        scheduler.scheduleAtFixedRate(this::cleanExpiredTokens, 1, 1, TimeUnit.HOURS);
+    public AuthService(JwtTokenRepository tokenRepository) {
+        this.tokenRepository = tokenRepository;
     }
 
-    public void login(UserDetails userDetails, String refreshToken, Instant expiresAt) {
-        validRefreshTokens.put(refreshToken, expiresAt);
-        log.info("Refresh token stored for user: {}", userDetails.getUsername());
+    @Transactional
+    public void login(UserDetails userDetails, String token, Instant expiresAt) {
+        JwtTokenEntity entity = new JwtTokenEntity();
+        entity.setUsername(userDetails.getUsername());
+        entity.setToken(token);
+        entity.setCreatedAt(Instant.now());
+        entity.setExpiresAt(expiresAt);
+        entity.setRevoked(false);
+        tokenRepository.save(entity);
     }
 
+    @Transactional
     public void logout(String token) {
-        if (validRefreshTokens.remove(token) != null) {
-            log.info("Refresh token invalidated.");
-        }
+        Optional<JwtTokenEntity> opt = tokenRepository.findByToken(token);
+        opt.ifPresent(t -> {
+            t.setRevoked(true);
+            tokenRepository.save(t);
+        });
+    }
+
+    @Transactional
+    public void refreshToken(String oldToken, String newToken, Instant expiresAt) {
+        Optional<JwtTokenEntity> optOld = tokenRepository.findByToken(oldToken);
+
+        String username = optOld
+                .map(JwtTokenEntity::getUsername)
+                .orElseThrow(() -> new RuntimeException("기존 토큰 정보 없음!"));
+
+        optOld.ifPresent(t -> {
+            t.setRevoked(true);
+            tokenRepository.save(t);
+        });
+
+        JwtTokenEntity newEntity = new JwtTokenEntity();
+        newEntity.setToken(newToken);
+        newEntity.setUsername(username);
+        newEntity.setCreatedAt(Instant.now());
+        newEntity.setExpiresAt(expiresAt);
+        newEntity.setRevoked(false);
+
+        tokenRepository.save(newEntity);
     }
 
     public boolean isTokenValid(String token) {
-        Instant expiresAt = validRefreshTokens.get(token);
-        return expiresAt != null && expiresAt.isAfter(Instant.now());
+        Optional<JwtTokenEntity> opt = tokenRepository.findByToken(token);
+        return opt.isPresent() && !opt.get().isRevoked() && opt.get().getExpiresAt().isAfter(Instant.now());
     }
 
     public Optional<JwtTokenEntity> findByToken(String token) {
-        if (isTokenValid(token)) {
-            JwtTokenEntity tempToken = new JwtTokenEntity();
-            tempToken.setToken(token);
-            tempToken.setExpiresAt(validRefreshTokens.get(token));
-            return Optional.of(tempToken);
-        }
-        return Optional.empty();
-    }
-    
-    public long cleanExpiredTokens() {
-        long cleanedCount = validRefreshTokens.entrySet().stream()
-                .filter(entry -> entry.getValue().isBefore(Instant.now()))
-                .map(Map.Entry::getKey)
-                .collect(Collectors.toList())
-                .stream()
-                .peek(validRefreshTokens::remove)
-                .count();
-        log.info("Cleaned {} expired refresh tokens from memory.", cleanedCount);
-        return cleanedCount;
+        return tokenRepository.findByToken(token);
     }
 }

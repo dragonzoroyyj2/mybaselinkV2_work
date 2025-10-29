@@ -1,30 +1,32 @@
 package com.mybaselinkV2.app.entity;
 
 import jakarta.persistence.*;
+import java.util.HashSet;
+import java.util.Set;
 
-/**
- * 🎯 RoleEntity - 사용자 권한 엔티티
- *
- * 테이블: roles
- * 예: ROLE_USER, ROLE_ADMIN
- */
 @Entity
 @Table(name = "roles")
 public class RoleEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id; // PK
+    private Long id;
 
-    @Column(nullable = false, length = 50, unique = true)
-    private String name; // 권한 이름
+    @Column(nullable = false, unique = true)
+    private String name;
 
-    // =====================
-    // Getter / Setter
-    // =====================
+    @ManyToMany(mappedBy = "roles")
+    private Set<UserEntity> users = new HashSet<>();
+
+    // =========================
+    // getter / setter
+    // =========================
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
+
+    public Set<UserEntity> getUsers() { return users; }
+    public void setUsers(Set<UserEntity> users) { this.users = users; }
 }

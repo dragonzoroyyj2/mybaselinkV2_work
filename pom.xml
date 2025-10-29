@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-	<project xmlns="http://maven.apache.org/POM/4.0.0" 
+<project xmlns="http://maven.apache.org/POM/4.0.0" 
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
                              http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -11,20 +11,20 @@
         <version>3.5.6</version>
         <relativePath/>
     </parent>
-	<groupId>com.mybaselinkV2</groupId>
-	<artifactId>MyBaseLink</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
-	<name>MyBaseLinkV2</name>
-	<description>MyBaseLinkV2 Application &amp;amp; Management Platform</description>
-   
+
+    <groupId>com.mybaselinkV2</groupId>
+    <artifactId>MyBaseLink</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>MyBaseLinkV2</name>
+    <description>MyBaseLinkV2 Application &amp; Management Platform</description>
+
     <properties>
         <java.version>21</java.version>
         <jjwt.version>0.11.5</jjwt.version>
     </properties>
 
-    <dependencies>
-
-        <!-- 🌐 Web (REST + MVC) -->
+    <dependencies> 
+        <!-- 🌐 Web -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
@@ -60,8 +60,6 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-thymeleaf</artifactId>
         </dependency>
-
-        <!-- 📐 Thymeleaf Layout Dialect (layout:decorate 사용 가능) -->
         <dependency>
             <groupId>nz.net.ultraq.thymeleaf</groupId>
             <artifactId>thymeleaf-layout-dialect</artifactId>
@@ -74,7 +72,7 @@
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
 
-        <!-- 💾 H2 Database (테스트용) -->
+        <!-- 💾 H2 Database -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
@@ -87,50 +85,44 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
-        <!-- 📊 Excel Export -->
+        <!-- 📊 Excel -->
         <dependency>
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>
             <version>5.2.5</version>
         </dependency>
 
-        <!-- 🧾 JSON 처리 -->
+        <!-- 🧾 JSON -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
-        <!-- 🔁 DevTools (개발 자동 리로드) -->
+        <!-- 🔁 DevTools -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
             <scope>runtime</scope>
         </dependency>
-        
-          <!-- ✅ Apache POI (Excel 생성용) -->
-		  <dependency>
-		    <groupId>org.apache.poi</groupId>
-		    <artifactId>poi-ooxml</artifactId>
-		    <version>5.2.5</version>
-		  </dependency>
-    
-		<dependency>
-		    <groupId>org.json</groupId>
-		    <artifactId>json</artifactId>
-		    <version>20210307</version>
-		</dependency>
-		
-			<!-- ✅ Spring 캐시 지원 -->
-		<dependency>
-		    <groupId>org.springframework.boot</groupId>
-		    <artifactId>spring-boot-starter-cache</artifactId>
-		</dependency>
-		
-		<!-- ✅ Caffeine 캐시 엔진 -->
-		<dependency>
-		    <groupId>com.github.ben-manes.caffeine</groupId>
-		    <artifactId>caffeine</artifactId>
-		</dependency>
+
+        <!-- ✅ Spring Cache -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+
+        <!-- ✅ Caffeine Cache -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
+        <!-- 🔐 BCrypt -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+            <version>6.3.1</version>
+        </dependency>
 
         <!-- 🧪 Test -->
         <dependency>
@@ -139,6 +131,12 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- 📝 org.json -->
+        <dependency>
+            <groupId>org.json</groupId>
+            <artifactId>json</artifactId>
+            <version>20210307</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -149,5 +147,4 @@
             </plugin>
         </plugins>
     </build>
-   
 </project>

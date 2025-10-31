@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ko"
+      xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout/default_layout}">
+
+<head>
+  <meta charset="UTF-8">
+  <title>주식 종목 리스트 (커스텀 + 모달)</title>
+
+  <style>
+    /* =======================
+       로딩 스피너
+       ======================= */
+    #loadingSpinner {
+      display: none;
+      position: fixed; top:0; left:0;
+      width:100%; height:100%;
+      background: rgba(255,255,255,0.7);
+      z-index: 9999;
+      justify-content: center; align-items: center;
+    }
+    #loadingSpinner .spinner {
+      border: 6px solid #f3f3f3;
+      border-top: 6px solid #3498db;
+      border-radius: 50%;
+      width: 50px; height: 50px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+
+    /* =======================
+       모달 공통 스타일
+       ======================= */
+    .modal { display:none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.4); z-index:10000; justify-content:center; align-items:center; }
+    .elegant-modal { background:#fff; border-radius:8px; max-width:500px; width:90%; padding:1rem; position:relative; }
+    .elegant-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; }
+    .close-btn { cursor:pointer; font-size:1.2rem; }
+    .form-group { margin-bottom:0.5rem; display:flex; flex-direction:column; }
+    .form-group label { font-weight:bold; margin-bottom:0.2rem; }
+    .form-group input, .form-group select, .form-group textarea { padding:0.3rem; font-size:0.9rem; }
+    .option-group { display:flex; gap:0.5rem; }
+    .modal-footer { display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1rem; }
+  </style>
+</head>
+
+<body>
+<div id="loadingSpinner"><div class="spinner"></div></div>
+
+<div layout:fragment="content">
+  <div class="content-container">
+    <h2>📊 주식 종목 리스트 (커스텀 + 모달)</h2>
+
+    <!-- =======================
+         검색 및 버튼 영역
+         ======================= -->
+    <div class="toolbar">
+      <div class="search-group">
+        <input type="text" id="searchInput" placeholder="검색어 입력" />
+        <button id="searchBtn" class="btn"><i class="fas fa-search"></i></button>
+        <button id="customFilterBtn" class="btn">커스텀 필터</button>
+      </div>
+    </div>
+
+    <!-- =======================
+         리스트 정보 및 액션 버튼
+         ======================= -->
+    <div class="list-info">
+      <span id="totalCount">총 0건</span>
+      <div class="action-buttons">
+        <button id="excelBtn" class="btn excel"><i class="fa-solid fa-file-excel"></i></button>
+        <button id="addBtn" class="btn"><i class="fas fa-plus"></i></button>
+        <button id="deleteSelectedBtn" class="btn red"><i class="fas fa-trash"></i></button>
+      </div>
+    </div>
+
+    <!-- =======================
+         테이블
+         ======================= -->
+    <div class="table-container">
+      <table>
+        <thead>
+        <tr>
+          <th><input type="checkbox" id="checkAll" /></th>
+          <th>No</th>
+          <th>종목코드</th>
+          <th>회사명</th>
+          <th>시장구분</th>
+          <th>업종</th>
+          <th>종가</th>
+          <th>시가</th>
+          <th>고가</th>
+          <th>저가</th>
+          <th>거래량</th>
+          <th>기준일</th>
+        </tr>
+        </thead>
+        <tbody id="dataTable"></tbody>
+      </table>
+    </div>
+
+    <!-- =======================
+         페이징
+         ======================= -->
+    <div id="pagination" class="pagination"></div>
+  </div>
+
+  <!-- =======================
+       등록 모달
+       ======================= -->
+  <div id="addModal" class="modal">
+    <div class="elegant-modal">
+      <div class="elegant-header">
+        <h3>등록</h3>
+        <span class="close-btn" data-close="addModal">&times;</span>
+      </div>
+      <div class="elegant-body">
+        <div class="form-group"><label>종목코드</label><input id="modalCode" /></div>
+        <div class="form-group"><label>회사명</label><input id="modalName" /></div>
+        <div class="form-group"><label>시장구분</label><input id="modalMarket" /></div>
+        <div class="form-group"><label>업종</label><input id="modalDept" /></div>
+      </div>
+      <div class="modal-footer">
+        <button id="saveBtn" class="btn">저장</button>
+        <button class="btn gray" data-close="addModal">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =======================
+       상세 모달
+       ======================= -->
+  <div id="detailModal" class="modal">
+    <div class="elegant-modal">
+      <div class="elegant-header">
+        <h3>상세 정보</h3>
+        <span class="close-btn" data-close="detailModal">&times;</span>
+      </div>
+      <div class="elegant-body">
+        <div class="form-group"><label>ID</label><input id="detailId" readonly /></div>
+        <div class="form-group"><label>종목코드</label><input id="detailCode" readonly /></div>
+        <div class="form-group"><label>회사명</label><input id="detailName" /></div>
+        <div class="form-group"><label>시장구분</label><input id="detailMarket" /></div>
+        <div class="form-group"><label>업종</label><input id="detailDept" /></div>
+      </div>
+      <div class="modal-footer">
+        <button id="updateBtn" class="btn">수정</button>
+        <button class="btn gray" data-close="detailModal">닫기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- =======================
+     페이지 스크립트
+     ======================= -->
+<th:block layout:fragment="pageScript">
+
+<!-- =======================
+     공통 알림
+     ======================= -->
+<script>
+if (!window.notify) {
+  window.notify = function(type, message) {
+    switch(type) {
+      case 'success': console.log(`[SUCCESS] ${message}`); break;
+      case 'info': console.log(`[INFO] ${message}`); break;
+      case 'warning': console.warn(`[WARNING] ${message}`); break;
+      case 'error': console.error(`[ERROR] ${message}`); break;
+      default: console.log(message);
+    }
+  };
+}
+</script>
+
+<script src="/js/commonPagination_op.js"></script>
+<script src="/js/commonUnifiedList_opV2.js"></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  // =======================
+  // 반응형 페이징 그룹 사이즈
+  // =======================
+  function getPageGroupSize() {
+    const width = window.innerWidth;
+    if (width < 480) return 3;
+    if (width < 768) return 5;
+    if (width < 1024) return 10;
+    return 20;
+  }
+
+  // =======================
+  // UnifiedList 초기화 (버튼 ID 동적 적용, 모달, 저장/수정, 페이징)
+  // =======================
+  const manager = initUnifiedList({
+    mode: "server",           // server / client
+    pagination: true,
+    apiUrl: "/api/stock/list",
+    tableBodySelector: "#dataTable",
+    paginationSelector: "#pagination",
+    searchInputSelector: "#searchInput",
+    searchBtnSelector: "#searchBtn",
+    addBtnSelector: "#addBtn",
+    modalId: "#addModal",
+    saveBtnSelector: "#saveBtn",
+    closeBtnSelector: "[data-close]",
+    checkAllSelector: "#checkAll",
+    deleteSelectedBtnSelector: "#deleteSelectedBtn",
+    detailModalId: "#detailModal",
+    excelBtnSelector: "#excelBtn",
+    pageSize: 10,
+    pageGroupSize: getPageGroupSize(),
+    columns: [
+      { key: "id", label: "No" },
+      { key: "Code", label: "종목코드"},
+      { key: "Name", label: "회사명", isDetailLink: true },
+      { key: "Market", label: "시장구분" },
+      { key: "Dept", label: "업종" },
+      { key: "Close", label: "종가" },
+      { key: "Open", label: "시가" },
+      { key: "High", label: "고가" },
+      { key: "Low", label: "저가" },
+      { key: "Volume", label: "거래량" },
+      { key: "Date", label: "기준일" }
+    ],
+    buttons: {
+      searchInputSelector: "#searchInput",
+      searchBtnSelector: "#searchBtn",
+      addBtnSelector: "#addBtn",
+      saveBtnSelector: "#saveBtn",
+      closeBtnSelector: "[data-close]",
+      deleteSelectedBtnSelector: "#deleteSelectedBtn",
+      checkAllSelector: "#checkAll",
+      excelBtnSelector: "#excelBtn"
+    },
+    enableRowClickDetail: false,
+    enableDetailView: true,
+    detailViewButtons: { update: "#updateBtn", delete: "#deleteSelectedBtn" }
+  });
+
+  // =======================
+  // 커스텀 필터
+  // =======================
+  const customFilterBtn = document.getElementById("customFilterBtn");
+  if (customFilterBtn) {
+    customFilterBtn.addEventListener("click", () => {
+      const keyword = prompt("필터 키워드 입력:");
+      if (keyword !== null) manager.loadList(0, 'web', keyword);
+    });
+  }
+
+  // =======================
+  // 등록 버튼 이벤트
+  // =======================
+  document.getElementById("saveBtn").addEventListener("click", () => {
+    const newData = {
+      Code: document.getElementById("modalCode").value,
+      Name: document.getElementById("modalName").value,
+      Market: document.getElementById("modalMarket").value,
+      Dept: document.getElementById("modalDept").value
+    };
+    console.log("저장 데이터:", newData);
+    manager._closeModal("#addModal");
+    window.notify("success", "새 항목 저장 완료 (콘솔 확인)");
+    manager.loadList(manager.currentPage);
+  });
+
+  // =======================
+  // 수정 버튼 이벤트
+  // =======================
+  document.getElementById("updateBtn").addEventListener("click", () => {
+    const updatedData = {
+      Id: document.getElementById("detailId").value,
+      Name: document.getElementById("detailName").value,
+      Market: document.getElementById("detailMarket").value,
+      Dept: document.getElementById("detailDept").value
+    };
+    console.log("수정 데이터:", updatedData);
+    manager._closeModal("#detailModal");
+    window.notify("success", "항목 수정 완료 (콘솔 확인)");
+    manager.loadList(manager.currentPage);
+  });
+
+  // =======================
+  // 윈도우 리사이즈 시 pageGroupSize 조정
+  // =======================
+  window.addEventListener("resize", () => {
+    const newSize = getPageGroupSize();
+    if (newSize !== manager.pageGroupSize) {
+      manager.pageGroupSize = newSize;
+      document.dispatchEvent(new Event("resizePagination"));
+    }
+  });
+});
+</script>
+</th:block>
+
+</body>
+</html>

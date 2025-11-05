@@ -1,0 +1,599 @@
+제시해 주신 Python 코드는 주식 데이터를 분석하고 기술적/기본적 필터링을 수행하는 **통합 주식 분석 스크립트 (stock_analyzer_integrated.py)**로 보입니다.
+
+코드를 전반적으로 검토했으며, 이 코드가 수행하는 주요 기능, 핵심 로직, 그리고 개선할 수 있는 부분에 대해 인사이트를 제공해 드리겠습니다.
+
+?? 코드 분석 및 주요 기능 요약
+제공된 코드는 FinanceDataReader, pandas, mplfinance, yfinance, 그리고 선택적으로 dart-fss 라이브러리를 활용하여 한국 주식 종목에 대한 다각적인 분석을 자동화하는 것을 목표로 합니다.
+
+1. ?? 핵심 기능
+데이터 로드: 로컬에 저장된 주가 데이터(Parquet 파일)를 로드합니다.
+
+기술적 분석:
+
+지정된 기간의 이동 평균선 (MA) 계산 (ma50, ma200 등).
+
+골든 크로스 (Golden Cross) 감지 (50일 MA가 200일 MA를 상향 돌파).
+
+차트 패턴 감지: 이중 바닥(double_bottom) 등의 주요 패턴을 감지합니다.
+
+기본적 분석/악재 필터링:
+
+yfinance를 사용하여 PER, PBR, ROE, 부채비율 (DebtToEquity) 등 재무 데이터를 가져옵니다.
+
+최근 60일간의 뉴스 헤드라인을 가져와 악재성 키워드를 검사합니다.
+
+dart-fss를 사용하여 최근 60일간의 DART 공시에서 횡령, 배임 등의 악재를 필터링합니다.
+
+필터링 및 검색:
+
+특정 패턴(--pattern_type: goldencross, double_bottom 등)에 해당하는 종목만 필터링합니다.
+
+재무 건전성이 나쁘거나 (ROE < 0, 부채비율 > 200%) 악재 뉴스/공시가 있는 종목을 제외합니다 (--exclude_negatives).
+
+병렬 처리: ThreadPoolExecutor를 사용해 다수의 종목 분석을 병렬로 처리할 수 있도록 설계되었습니다. (현재 로직은 순차 실행으로 간소화됨)
+
+차트 생성: 분석 결과를 시각화하기 위한 차트 생성 모드 (--mode chart)가 준비되어 있습니다.
+
+2. ?? 주요 로직 (코드 영역별)
+영역	함수/변수	설명
+환경 설정	setup_env, set_korean_font	로그, 데이터 경로 설정 및 Matplotlib 한글 폰트 설정.
+기술적 분석	check_ma_conditions	이동 평균선 계산 및 골든 크로스 감지.
+차트 패턴	find_double_bottom, find_peaks_and_troughs	주가 봉우리와 골짜기를 찾아 이중 바닥 등 패턴 감지.
+기본적 분석	get_fundamental_data	yfinance를 통해 재무 정보와 최근 뉴스 헤드라인을 가져옵니다.
+악재 필터	check_for_negative_dart_disclosures, check_for_negatives	DART 공시, 뉴스, 재무 비율을 검토하여 악재성 종목을 걸러냅니다. (가장 중요한 안전 필터)
+실행 엔진	analyze_symbol, run_analysis	개별 종목의 데이터 로드, 악재 필터링, 기술적 분석, 패턴 필터링을 순서대로 수행하고 결과를 반환합니다.
+
+Sheets로 내보내기
+
+?? 개선 및 추가 제안 사항
+1. ?? DART API Key 보안 및 예외 처리
+API Key 환경 변수 사용: DART_API_KEY = "YOUR_DART_API_KEY_HERE"처럼 코드 내에 직접 키를 넣는 대신, 환경 변수에서 로드하도록 변경하는 것이 보안상 훨씬 좋습니다.
+
+Python
+
+# 변경 제안
+DART_API_KEY = os.getenv("DART_API_KEY", "YOUR_DART_API_KEY_HERE")
+if DART_API_KEY == "YOUR_DART_API_KEY_HERE":
+    logging.warning("DART API KEY가 설정되지 않았거나 기본값입니다.")
+DART 연결 실패 처리 강화: check_for_negative_dart_disclosures 함수에서 DART 연결이 실패하거나 API 호출 횟수 제한에 걸렸을 경우 (특히 대규모 분석 시) 오류를 뱉지 않고 조용히 False, None을 반환하는 현재 로직은 안전하지만, 원인을 알 수 없게 됩니다. 로깅을 통해 실패 원인을 기록하는 것이 좋습니다.
+
+2. ?? 패턴 분석 로직의 유효성 강화
+패턴 감지 기간 명시: 현재 find_peaks_and_troughs는 전체 기간(df)을 대상으로 합니다. 이중 바닥과 같은 패턴은 보통 최근 6개월~1년 이내에서 찾는 것이 유의미합니다. 분석 기간을 제한하여 최근의 유효한 패턴만 찾도록 수정하는 것이 좋습니다.
+
+Python
+
+# find_peaks_and_troughs 호출 시
+recent_df = df.iloc[-250:] # 최근 1년 (약 250거래일)
+peaks, troughs = find_peaks_and_troughs(recent_df, ...)
+삼중 바닥, 컵 앤 핸들 구현: 현재 이 두 패턴의 로직은 생략되어 있습니다. 완성도를 위해 해당 패턴의 정의(Define)에 맞는 구현이 필요합니다.
+
+3. ?? 차트 생성 (generate_chart) 함수 완성
+차트 생성 로직이 pass로 처리되어 있습니다. 분석 결과를 시각화하는 것은 매우 중요하므로, mplfinance를 사용하여 이동평균선과 감지된 패턴(예: 이중 바닥의 넥라인)을 포함한 차트를 생성하는 코드를 완성해야 합니다.
+
+4. ?? 종목 정보의 일관성 및 의존성
+DartCorpCode 누락 처리: analyze_symbol 함수에서 corp_code가 누락된 경우 DART 필터링이 비활성화됩니다. 이는 stock_listing.json 파일에 DART Corp Code가 잘 포함되어 있어야 한다는 것을 의미합니다. stock_updater.py가 이 정보를 정확히 가져오도록 의존성을 명확히 해야 합니다.
+
+? 다음으로 무엇을 도와드릴까요?
+이 스크립트에서 차트 생성 (generate_chart) 함수의 구체적인 구현이 생략되어 있습니다.
+
+mplfinance를 사용하여 종가 (Close), 거래량, 그리고 지정된 이동 평균선 (MA)을 포함하는 Base64 인코딩된 차트를 생성하는 코드를 완성해 드릴까요?
+
+
+
+
+
+
+------------
+
+
+네, 요청하신 대로 한국 기업 재무 데이터의 정확도를 높이기 위해 yfinance를 대체하고 FinanceDataReader를 활용하여 ROE와 부채비율을 가져오도록 get_fundamental_data 함수를 수정한 통합 분석 스크립트의 전체 코드를 제공해 드리겠습니다.
+
+?? 중요한 변경 사항 및 전제 조건
+yfinance 제거 (재무 데이터): 재무 비율 (PER, PBR, ROE, 부채비율)은 fdr.financials.get_financial_statements 함수를 사용하도록 로직을 변경했습니다.
+
+yfinance 유지 (뉴스 데이터): FinanceDataReader는 뉴스 기능을 제공하지 않으므로, 뉴스 헤드라인을 가져오는 기능만 yfinance를 통해 그대로 유지합니다.
+
+데이터 구조 조정: fdr.financials의 반환 형식에 맞춰 재무 지표를 추출하는 로직이 추가되었습니다.
+
+??? 수정된 통합 주식 분석 스크립트 (stock_analyzer_integrated.py)
+Python
+
+import os
+import sys
+import json
+import time
+import logging
+import argparse
+import traceback
+from pathlib import Path
+from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
+import io
+import base64
+
+# ==============================
+# 필수 라이브러리 확인 및 임포트
+# ==============================
+try:
+    import FinanceDataReader as fdr
+    import pandas as pd
+    import mplfinance as mpf
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from scipy.signal import find_peaks
+    import yfinance as yf  # 뉴스 헤드라인 용도로 유지
+    
+    # DART 공시 필터링을 위한 라이브러리 확인
+    try:
+        from dart_fss import Dart
+        DART_AVAILABLE = True
+    except ImportError:
+        DART_AVAILABLE = False
+        print("경고: dart-fss 모듈이 설치되지 않아 공시 필터링이 비활성화됩니다. (pip install dart-fss)")
+
+except ModuleNotFoundError as e:
+    print(json.dumps({"error": f"필수 모듈 누락: {e.name} 설치 필요"}, ensure_ascii=False))
+    sys.exit(1)
+
+# ==============================
+# 1. 경로 및 상수 설정
+# ==============================
+BASE_DIR = Path(__file__).resolve().parents[2] if Path(__file__).name != '<stdin>' else Path.cwd()
+LOG_DIR = BASE_DIR / "log"
+DATA_DIR = BASE_DIR / "data" / "stock_data"
+LISTING_FILE = BASE_DIR / "data" / "stock_list" / "stock_listing.json"
+LOG_FILE = LOG_DIR / "stock_analyzer_integrated.log"
+
+# ?? DART API KEY 설정: 환경 변수에서 로드하거나, 없으면 기본값 사용
+DART_API_KEY = os.getenv("DART_API_KEY", "YOUR_DART_API_KEY_HERE") 
+if DART_API_KEY == "YOUR_DART_API_KEY_HERE" and DART_AVAILABLE:
+    print("경고: DART_API_KEY가 환경 변수 또는 코드에 설정되지 않았습니다. DART 공시 필터링이 비활성화됩니다.")
+    DART_AVAILABLE = False
+
+# ==============================
+# 2. 환경 초기화 및 로깅 설정
+# ==============================
+def setup_env():
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    LISTING_FILE.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler(LOG_FILE, encoding="utf-8"),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+
+def safe_print_json(data):
+    """JSON 결과를 표준 출력으로 안전하게 출력"""
+    sys.__stdout__.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    sys.__stdout__.flush()
+
+# ==============================
+# 3. 한글 폰트 설정 및 종목 정보 로드
+# ==============================
+MPLFINANCE_FONT = 'sans-serif'
+def set_korean_font():
+    """matplotlib 및 mplfinance 한글 폰트 설정"""
+    if sys.platform.startswith('win'): font_family = 'Malgun Gothic'
+    elif sys.platform.startswith('darwin'): font_family = 'AppleGothic'
+    else: font_family = 'NanumGothic'
+    try:
+        plt.rc('font', family=font_family)
+        plt.rcParams['axes.unicode_minus'] = False
+        global MPLFINANCE_FONT
+        MPLFINANCE_FONT = font_family
+    except Exception:
+        pass
+set_korean_font()
+
+def load_listing():
+    """종목 리스트 로드"""
+    if not LISTING_FILE.exists(): 
+        logging.error(f"종목 리스트 파일 없음: {LISTING_FILE}")
+        return [{"Code": "005930", "Name": "삼성전자", "DartCorpCode": "00126380"}] 
+        
+    with open(LISTING_FILE, "r", encoding="utf-8") as f: return json.load(f)
+
+def get_stock_name(symbol):
+    """종목 코드로 이름 찾기"""
+    try:
+        items = load_listing()
+        for item in items:
+            code = item.get("Code") or item.get("code")
+            if code == symbol: return item.get("Name") or item.get("name")
+        return symbol
+    except Exception: return symbol
+
+def get_dart_corp_code(symbol):
+    """종목 코드로 DART Corp Code 찾기"""
+    try:
+        items = load_listing()
+        for item in items:
+            code = item.get("Code") or item.get("code")
+            if code == symbol: return item.get("DartCorpCode")
+        return None
+    except Exception: return None
+
+# ==============================
+# 4. 기술적 분석 패턴 로직 (수정 없음)
+# ==============================
+def find_peaks_and_troughs(df, prominence=0.01, width=3):
+    """주요 봉우리와 골짜기 인덱스 찾기"""
+    recent_df = df.iloc[-250:].copy()
+    if recent_df.empty: return np.array([]), np.array([])
+    
+    std_dev = recent_df['Close'].std()
+    peaks, _ = find_peaks(recent_df['Close'], prominence=std_dev * prominence, width=width)
+    troughs, _ = find_peaks(-recent_df['Close'], prominence=std_dev * prominence, width=width)
+    
+    start_idx = len(df) - len(recent_df)
+    return peaks + start_idx, troughs + start_idx
+
+def find_double_bottom(df, troughs, tolerance=0.02, neckline_breakout=True):
+    """이중 바닥 패턴 감지"""
+    recent_troughs = [t for t in troughs if t >= len(df) - 250]
+    
+    if len(recent_troughs) < 2: return False, None, None
+    
+    idx2, idx1 = recent_troughs[-1], recent_troughs[-2] 
+    price1, price2 = df['Close'].iloc[idx1], df['Close'].iloc[idx2]
+    
+    is_price_matching = abs(price1 - price2) / min(price1, price2) < tolerance
+    if not is_price_matching: return False, None, None
+    
+    interim_high = df['Close'].iloc[idx1:idx2].max()
+    is_breakout = df['Close'].iloc[-1] > interim_high
+    
+    if neckline_breakout and not is_breakout: 
+        return False, interim_high, True # 잠재적
+    
+    return is_breakout, interim_high, False # 돌파 또는 조건 미충족
+
+def find_triple_bottom(df, troughs, tolerance=0.02, neckline_breakout=True):
+    """삼중 바닥 패턴 감지 (Placeholder)"""
+    return False, None, False
+
+def find_cup_and_handle(df, peaks, troughs, min_cup_depth=0.1):
+    """컵 앤 핸들 패턴 감지 (Placeholder)"""
+    return False, None, None, None
+
+
+# ==============================
+# 5. 기본적 분석 및 악재 필터링 로직 (수정된 부분)
+# ==============================
+
+def get_financial_statements_fdr(code):
+    """FinanceDataReader를 이용해 재무 비율을 가져옵니다."""
+    fundamentals = {}
+    try:
+        # 최근 연간 재무제표 (KOR)
+        df_fin = fdr.financials.get_financial_statements(code, 'Annual', 'KOR')
+        
+        if df_fin is None or df_fin.empty:
+            return fundamentals
+
+        # 가장 최근 분기 데이터 (가장 오른쪽 열)
+        latest_col = df_fin.columns[-1]
+
+        # 1. 부채비율 (부채총계 / 자본총계 * 100)
+        total_debt = df_fin.loc['부채총계', latest_col] if '부채총계' in df_fin.index else np.nan
+        total_equity = df_fin.loc['자본총계', latest_col] if '자본총계' in df_fin.index else np.nan
+        if not pd.isna(total_debt) and not pd.isna(total_equity) and total_equity != 0:
+            fundamentals['DebtToEquity'] = (total_debt / total_equity) * 100
+            
+        # 2. ROE (Return On Equity, 지배주주순이익 / (평균)지배주주지분 * 100)
+        # fdr에서는 ROE 지표를 직접 제공하지 않으므로, 당기순이익/자본총계로 근사하거나,
+        # '자본총계'와 '당기순이익'을 사용하여 직접 계산합니다.
+        net_income = df_fin.loc['당기순이익', latest_col] if '당기순이익' in df_fin.index else np.nan
+        if not pd.isna(net_income) and not pd.isna(total_equity) and total_equity != 0:
+            fundamentals['ROE'] = (net_income / total_equity) * 100
+        
+        # 3. PER, PBR은 fdr.StockListing을 통해 가져오는 것이 일반적이지만, 
+        # 여기서는 재무제표를 통해 계산하지 않고 yfinance에 의존하거나 제외하는 것이 합리적입니다.
+        # 편의상 현재는 yfinance 뉴스만 사용하므로, yfinance의 info에서 가져올 수 있는 PER/PBR은 제외합니다.
+        
+    except Exception as e:
+        logging.warning(f"FinanceDataReader 재무 데이터 로드 실패 ({code}): {e}")
+        
+    return fundamentals
+
+def get_yfinance_news(code):
+    """yfinance를 이용해 최근 뉴스를 가져옵니다."""
+    headlines = []
+    try:
+        yf_ticker = f"{code}.KS" if not code.endswith('.KS') else code
+        ticker = yf.Ticker(yf_ticker)
+        news_list = ticker.news
+        
+        filtered_headlines = []
+        two_months_ago = datetime.now() - timedelta(days=60)
+        
+        for news in news_list:
+            publish_date = datetime.fromtimestamp(news.get('providerPublishTime'))
+            if publish_date >= two_months_ago:
+                filtered_headlines.append({"title": news.get('title'), "link": news.get('link')})
+            if len(filtered_headlines) >= 3: break
+            
+        return filtered_headlines
+    except Exception as e:
+        logging.warning(f"yfinance 뉴스 로드 실패 ({code}): {e}")
+        return []
+
+
+def get_fundamental_data(code):
+    """재무 데이터(FDR)와 뉴스(YF)를 통합하여 가져옵니다."""
+    
+    # 1. 재무 비율 (FDR 사용)
+    fundamentals = get_financial_statements_fdr(code)
+    
+    # 2. 뉴스 헤드라인 (yfinance 사용)
+    headlines = get_yfinance_news(code)
+    
+    # PER, PBR은 실시간성을 위해 별도의 API나 fdr.stocklisting으로 가져올 수 있지만,
+    # 현재는 핵심인 ROE, 부채비율(FDR)과 뉴스(YF)에 집중합니다.
+    
+    return fundamentals, headlines
+
+def check_for_negative_dart_disclosures(corp_code):
+    """DART API를 사용하여 악재성 공시를 확인합니다."""
+    if not DART_AVAILABLE or not corp_code:
+        return False, None
+        
+    try:
+        dart = Dart(DART_API_KEY)
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=60) # 최근 60일
+        
+        reports = dart.search(corp_code=corp_code, start_dt=start_date.strftime('%Y%m%d'))
+
+        negative_keywords = ["횡령", "배임", "소송 제기", "손해배상", "거래정지", "상장폐지", "감사의견 거절", "파산", "회생"]
+
+        for report in reports:
+            if "유상증자 결정" in report.report_nm and "제3자배정" in report.report_nm: continue 
+            
+            if any(keyword in report.report_nm for keyword in negative_keywords):
+                return True, f"DART 공시 악재: '{report.report_nm}'"
+
+        return False, None
+
+    except Exception as e:
+        logging.error(f"DART 공시 확인 중 오류 ({corp_code}): {e}")
+        return False, None
+
+def check_for_negatives(fundamentals, headlines, code, corp_code):
+    """뉴스/재무/공시 기반으로 악재성 종목 여부를 검사"""
+    
+    # 1. 뉴스 헤드라인 기반 검사 
+    negative_keywords_news = ["횡령", "배임", "소송", "분쟁", "거래 정지", "악재", "하락 전망", "투자주의", "적자"]
+    for news in headlines:
+        if any(keyword in news.get('title', '') for keyword in negative_keywords_news):
+            return True, f"뉴스 악재: '{news.get('title')}'"
+            
+    # 2. 재무 건전성 기반 검사 (FDR 기반)
+    roe = fundamentals.get('ROE')
+    debt_to_equity = fundamentals.get('DebtToEquity')
+    
+    # ROE 음수 (적자 지속) 필터링
+    if roe is not None and roe < 0 and not pd.isna(roe): return True, f"재무 악재: ROE {roe:.1f}% (적자)"
+    
+    # 부채비율 (DebtToEquity) 200% 초과 필터링
+    if debt_to_equity is not None and debt_to_equity > 200 and not pd.isna(debt_to_equity): return True, f"재무 악재: 부채비율 {debt_to_equity:.1f}% 초과 (200% 기준)"
+
+    # 3. DART 공시 기반 검사 
+    is_negative_dart, reason_dart = check_for_negative_dart_disclosures(corp_code)
+    if is_negative_dart: return True, reason_dart
+        
+    return False, None
+
+# ==============================
+# 6. 분석 실행 및 필터링 (수정 없음)
+# ==============================
+
+def check_ma_conditions(df, periods, analyze_patterns):
+    """이동 평균선 및 패턴 분석을 수행하고 결과를 반환합니다."""
+    results = {}
+    if len(df) < 200: 
+        analyze_patterns = False
+        
+    for p in periods:
+        if len(df) >= p:
+            df[f'ma{p}'] = df['Close'].rolling(window=p, min_periods=1).mean() 
+            results[f"above_ma{p}"] = df['Close'].iloc[-1] > df[f'ma{p}'].iloc[-1]
+    
+    if 'ma50' in df.columns and 'ma200' in df.columns and len(df) >= 200:
+        results["goldencross_50_200_detected"] = (df['ma50'].iloc[-2] < df['ma200'].iloc[-2] and df['ma50'].iloc[-1] > df['ma200'].iloc[-1])
+    
+    if analyze_patterns:
+        peaks, troughs = find_peaks_and_troughs(df)
+        is_db, neckline_db, is_potential_db = find_double_bottom(df, troughs, neckline_breakout=True)
+        results['pattern_double_bottom'] = is_db
+        results['pattern_double_bottom_potential'] = is_potential_db
+        results['db_neckline_price'] = neckline_db 
+
+    return results
+
+def analyze_symbol(item, periods, analyze_patterns, exclude_negatives, pattern_type_filter):
+    """단일 종목을 분석하고 결과를 반환합니다."""
+    code = item.get("Code") or item.get("code")
+    name = item.get("Name") or item.get("name")
+    corp_code = item.get("DartCorpCode")
+    path = DATA_DIR / f"{code}.parquet"
+    if not path.exists(): return None
+    
+    try:
+        df = pd.read_parquet(path)
+        if len(df) < 50: return None
+
+        # 1. 기본적 분석 및 뉴스 가져오기 (수정된 함수 호출)
+        fundamentals, headlines = get_fundamental_data(code)
+        
+        # 2. 악재 필터링
+        if exclude_negatives:
+            is_negative, reason = check_for_negatives(fundamentals, headlines, code, corp_code)
+            if is_negative:
+                logging.warning(f"[FILTERED] {name} ({code}): 악재로 제외됨. 이유: {reason}")
+                return None
+        
+        # 3. 기술적 분석 및 패턴 감지
+        analysis_results = check_ma_conditions(df, periods, analyze_patterns) 
+        
+        # 4. 패턴 필터링
+        is_match = True
+        if pattern_type_filter:
+            if pattern_type_filter == 'goldencross': is_match = analysis_results.get("goldencross_50_200_detected", False)
+            elif pattern_type_filter == 'double_bottom': 
+                is_match = analysis_results.get("pattern_double_bottom", False) or analysis_results.get("pattern_double_bottom_potential", False)
+
+        if not is_match: return None
+        
+        # 5. 결과 취합
+        if analysis_results or fundamentals or headlines:
+            fundamentals_clean = {k: v for k, v in fundamentals.items() if v is not None and not pd.isna(v)}
+            analysis_clean = {k: v for k, v in analysis_results.items() if v is not None and not pd.isna(v)}
+            
+            return {
+                "ticker": code,
+                "name": name,
+                "technical_conditions": analysis_clean,
+                "fundamentals": fundamentals_clean,
+                "recent_news_headlines": headlines
+            }
+        return None
+    except Exception as e:
+        logging.error(f"[ERROR] {code} {name} 분석 실패: {e}\n{traceback.format_exc()}")
+        return None
+
+def run_analysis(workers, ma_periods_str, analyze_patterns, exclude_negatives, pattern_type_filter):
+    """병렬 실행 로직"""
+    start_time = time.time()
+    periods = [int(p.strip()) for p in ma_periods_str.split(',') if p.strip().isdigit()]
+    if pattern_type_filter: analyze_patterns = True 
+
+    items = load_listing()
+    results = []
+    
+    logging.info(f"분석 시작: 총 {len(items)} 종목, 최대 워커 {workers}개 사용.")
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_item = {
+            executor.submit(analyze_symbol, item, periods, analyze_patterns, exclude_negatives, pattern_type_filter): item
+            for item in items
+        }
+        
+        for future in as_completed(future_to_item):
+            item = future_to_item[future]
+            try:
+                r = future.result()
+                if r:
+                    results.append(r)
+            except Exception as e:
+                code = item.get("Code") or item.get("code")
+                name = item.get("Name") or item.get("name")
+                logging.error(f"[ERROR] {code} {name} 처리 중 예외 발생: {e}")
+    
+    end_time = time.time()
+    logging.info(f"분석 완료: {len(results)}개 종목 필터링 됨. 총 소요 시간: {end_time - start_time:.2f}초")
+    
+    safe_print_json({"results": results, "mode": "analyze", "filter": pattern_type_filter})
+
+# =====================================================
+# 7. 차트 생성 로직 (수정 없음)
+# =====================================================
+def generate_chart(symbol, ma_periods_str):
+    """특정 종목의 주가 차트를 생성하여 Base64로 인코딩합니다."""
+    
+    code = symbol
+    name = get_stock_name(code)
+    periods = [int(p.strip()) for p in ma_periods_str.split(',') if p.strip().isdigit()]
+    path = DATA_DIR / f"{code}.parquet"
+    
+    if not path.exists():
+        safe_print_json({"error": f"데이터 파일을 찾을 수 없음: {path}"})
+        return
+
+    try:
+        df = pd.read_parquet(path)
+        if df.empty:
+            safe_print_json({"error": "데이터프레임이 비어 있습니다."})
+            return
+            
+        df = df.iloc[-250:].copy() 
+        
+        ma_lines = []
+        for p in periods:
+            if len(df) >= p:
+                ma_name = f'ma{p}'
+                df[ma_name] = df['Close'].rolling(window=p, min_periods=1).mean()
+                ma_lines.append(mpf.make_addplot(df[ma_name], panel=0, type='line', width=1.0, color='blue' if p == 200 else ('green' if p == 50 else 'orange'), secondary_y=False))
+
+        volume_plot = mpf.make_addplot(df['Volume'], type='bar', panel=1, color='gray', secondary_y=False)
+
+        mc = mpf.make_marketcolors(up='red', down='blue', wick='black', edge='black', volume='gray')
+        s = mpf.make_mpf_style(marketcolors=mc, gridcolor='gray', figcolor='white', y_on_right=False, 
+                               rc={'font.family': MPLFINANCE_FONT})
+
+        fig, axes = mpf.plot(
+            df, 
+            type='candle', 
+            style=s,
+            title=f"{name} ({code}) Price Chart with MAs",
+            ylabel='Price',
+            ylabel_lower='Volume',
+            volume=True,
+            addplot=ma_lines + [volume_plot],
+            figscale=1.5,
+            returnfig=True
+        )
+
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', bbox_inches='tight')
+        plt.close(fig)
+        
+        image_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+        
+        safe_print_json({
+            "ticker": code,
+            "name": name,
+            "chart_image_base64": image_base64,
+            "mode": "chart"
+        })
+
+    except Exception as e:
+        logging.error(f"[ERROR] 차트 생성 실패 ({code} {name}): {e}\n{traceback.format_exc()}")
+        safe_print_json({"error": f"차트 생성 실패: {e}"})
+
+# ==============================
+# 8. 메인 함수 (수정 없음)
+# ==============================
+def main():
+    parser = argparse.ArgumentParser(description="주식 데이터 분석 및 차트 생성 스크립트")
+    parser.add_argument("--mode", type=str, required=True, choices=['analyze', 'chart'], help="실행 모드 선택: 'analyze' 또는 'chart'")
+    parser.add_argument("--workers", type=int, default=os.cpu_count() * 2, help="분석 모드에서 사용할 최대 스레드 수")
+    parser.add_argument("--ma_periods", type=str, default="50,200", help="이동 평균선 기간 지정 (쉼표로 구분)")
+    parser.add_argument("--symbol", type=str, help="차트 모드에서 사용할 종목 코드")
+    parser.add_argument("--analyze_patterns", action="store_true", help="패턴 감지 활성화")
+    parser.add_argument("--pattern_type", type=str, choices=['double_bottom', 'triple_bottom', 'cup_and_handle', 'goldencross'], help="필터링할 패턴 종류")
+    parser.add_argument("--exclude_negatives", action="store_true", help="악재성 종목 제외")
+
+    args = parser.parse_args()
+    setup_env()
+
+    try:
+        if args.mode == 'analyze':
+            if args.pattern_type: args.analyze_patterns = True
+            run_analysis(args.workers, args.ma_periods, args.analyze_patterns, args.exclude_negatives, args.pattern_type) 
+        elif args.mode == 'chart':
+            if not args.symbol: 
+                logging.error("차트 모드에는 --symbol 인수가 필수입니다.")
+                sys.exit(1)
+            generate_chart(args.symbol, args.ma_periods) 
+            
+    except Exception as e:
+        logging.critical(f"스크립트 실행 중 치명적인 오류 발생: {e}\n{traceback.format_exc()}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

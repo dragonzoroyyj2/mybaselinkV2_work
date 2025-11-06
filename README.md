@@ -1,3 +1,7 @@
+
+https://api.telegram.org/botk8272059398:AAE00RhtkY5NkXCTR8doI4FEjOQnBls0GnQk/getMe
+
+
 https://api.telegram.org/bot8272059398:AAE00RhtkY5NkXCTR8doI4FEjOQnBls0GnQ/getUpdates
 
 

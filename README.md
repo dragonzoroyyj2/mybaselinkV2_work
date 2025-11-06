@@ -1,3 +1,6 @@
+https://api.telegram.org/bot8272059398:AAE00RhtkY5NkXCTR8doI4FEjOQnBls0GnQ/sendMessage?chat_id=8272059398&text=봇이%20당신에게%20직접%20보낸%20테스트%20메시지입니다.
+
+
 ok":true,"result":{"id":8272059398,"is_bot":true,"first_name":"MyBaseLinkV2","username":"MyBaseLinkV2_bot","can_join_groups":true,"can_read_all_group_messages":false,"supports_inline_queries":false,"can_connect_to_business":false,"has_main_web_app":false
 
 

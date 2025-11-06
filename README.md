@@ -1,4 +1,6 @@
-https://api.telegram.org/8272059398:AAE00RhtkY5NkXCTR8doI4FEjOQnBls0GnQ/getUpdates
+https://api.telegram.org/bot8272059398:AAE00RhtkY5NkXCTR8doI4FEjOQnBls0GnQ/getUpdates
+
+
 
 
 k8272059398:AAE00RhtkY5NkXCTR8doI4FEjOQnBls0GnQk

@@ -1,3 +1,6 @@
+https://api.telegram.org/bot8272059398:AAE00RhtkY5NkXCTR8doI4FEjOQnBls0GnQ/getUpdates
+
+
 https://api.telegram.org/bot8272059398:AAE00RhtkY5NkXCTR8doI4FEjOQnBls0GnQ/getMe
 
 https://api.telegram.org/bot8272059398:AAE00RhtkY5NkXCTR8doI4FEjOQnBls0GnQ/sendMessage?chat_id=8272059398&text=봇이%20당신에게%20직접%20보낸%20테스트%20메시지입니다.

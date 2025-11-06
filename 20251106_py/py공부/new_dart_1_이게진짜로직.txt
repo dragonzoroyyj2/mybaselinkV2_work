@@ -1,0 +1,564 @@
+사용자님께서는 현재 코드에 포함된 차트 패턴 분석 로직을 더 심층적으로 이해하고, 미구현된 패턴에 대해서도 자세한 설명과 구현 아이디어를 원하시는군요.
+
+요청하신 대로, 스크립트에서 사용되는 주요 패턴인 이중 바닥, 삼중 바닥, 그리고 컵 앤 핸들 패턴에 대한 상세 설명과 함께, 패턴 감지 로직을 보강하는 아이디어를 반영한 코드 전체를 다시 제공해 드리겠습니다.
+
+이번 수정에서는 다음 내용이 반영되었습니다:
+
+find_double_bottom 함수에 상세한 패턴 조건을 주석으로 명시.
+
+find_triple_bottom과 find_cup_and_handle 함수에 **패턴 감지 로직의 구체적인 구현 아이디어 (주석 형태)**를 추가했습니다.
+
+??? 수정된 통합 주식 분석 스크립트 (stock_analyzer_integrated.py)
+4. 기술적 분석 패턴 로직 (패턴 상세화) 영역 중점 수정
+=======================================================================================================
+상세 내용,설명 및 코드 로직,투자 전략
+패턴 형태,"주가가 하락 후 저점 1(V1)을 찍고 반등, 다시 하락하여 저점 2(V2)를 찍은 후 반등하는 W자 형태. V1과 V2는 가격대가 유사해야 합니다.",매수 진입점: 넥라인(중간 고점)을 강한 거래량으로 돌파할 때.
+핵심 로직,1. 저점 유사성 (tolerance): 두 번째 저점(V2)의 가격이 첫 번째 저점(V1)의 가격과 tolerance (3%) 이내여야 합니다.,목표가: 넥라인에서 바닥까지의 높이만큼 넥라인 돌파 지점에서 추가 상승할 것으로 예측합니다.
+패턴 완성,두 저점 사이의 **중간 고점(넥라인)**을 현재 주가가 상향 돌파해야 완성됩니다.,"손절매: 넥라인을 돌파한 후 다시 넥라인 아래로 하락하거나, 두 번째 저점(V2) 아래로 떨어질 때 실행합니다."
+잠재적 상태,V2 형성 후 반등 중이지만 아직 넥라인을 돌파하지 못한 상태 (Potential).,현재 스크립트는 이 상태를 감지하여 패턴이 형성 중임을 알려줍니다.
+
+
+상세 내용,설명 및 코드 로직,투자 전략
+패턴 형태,"주가가 하락 후 저점 1(V1)을 찍고 반등, 다시 하락하여 저점 2(V2)를 찍은 후 반등하는 W자 형태. V1과 V2는 가격대가 유사해야 합니다.",매수 진입점: 넥라인(중간 고점)을 강한 거래량으로 돌파할 때.
+핵심 로직,1. 저점 유사성 (tolerance): 두 번째 저점(V2)의 가격이 첫 번째 저점(V1)의 가격과 tolerance (3%) 이내여야 합니다.,목표가: 넥라인에서 바닥까지의 높이만큼 넥라인 돌파 지점에서 추가 상승할 것으로 예측합니다.
+패턴 완성,두 저점 사이의 **중간 고점(넥라인)**을 현재 주가가 상향 돌파해야 완성됩니다.,"손절매: 넥라인을 돌파한 후 다시 넥라인 아래로 하락하거나, 두 번째 저점(V2) 아래로 떨어질 때 실행합니다."
+잠재적 상태,V2 형성 후 반등 중이지만 아직 넥라인을 돌파하지 못한 상태 (Potential).,현재 스크립트는 이 상태를 감지하여 패턴이 형성 중임을 알려줍니다.
+=======================================================================================================
+import os
+import sys
+import json
+import time
+import logging
+import argparse
+import traceback
+from pathlib import Path
+from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
+import io
+import base64
+
+# ==============================
+# 필수 라이브러리 확인 및 임포트
+# (생략: 이전 코드와 동일)
+# ==============================
+try:
+    import FinanceDataReader as fdr
+    import pandas as pd
+    import mplfinance as mpf
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from scipy.signal import find_peaks
+    import yfinance as yf
+    
+    try:
+        from dart_fss import Dart
+        DART_AVAILABLE = True
+    except ImportError:
+        DART_AVAILABLE = False
+        print("경고: dart-fss 모듈이 설치되지 않아 공시 필터링이 비활성화됩니다. (pip install dart-fss)")
+
+except ModuleNotFoundError as e:
+    print(json.dumps({"error": f"필수 모듈 누락: {e.name} 설치 필요"}, ensure_ascii=False))
+    sys.exit(1)
+
+# ==============================
+# 1. 경로 및 상수 설정
+# (생략: 이전 코드와 동일)
+# ==============================
+BASE_DIR = Path(__file__).resolve().parents[2] if Path(__file__).name != '<stdin>' else Path.cwd()
+LOG_DIR = BASE_DIR / "log"
+DATA_DIR = BASE_DIR / "data" / "stock_data"
+LISTING_FILE = BASE_DIR / "data" / "stock_list" / "stock_listing.json"
+LOG_FILE = LOG_DIR / "stock_analyzer_integrated.log"
+
+DART_API_KEY = os.getenv("DART_API_KEY", "YOUR_DART_API_KEY_HERE") 
+if DART_API_KEY == "YOUR_DART_API_KEY_HERE" and DART_AVAILABLE:
+    print("경고: DART_API_KEY가 환경 변수 또는 코드에 설정되지 않았습니다. DART 공시 필터링이 비활성화됩니다.")
+    DART_AVAILABLE = False
+
+# ==============================
+# 2. 환경 초기화 및 로깅 설정
+# 3. 한글 폰트 설정 및 종목 정보 로드
+# (생략: 이전 코드와 동일)
+# ==============================
+def setup_env():
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    LISTING_FILE.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler(LOG_FILE, encoding="utf-8"),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+
+def safe_print_json(data):
+    sys.__stdout__.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    sys.__stdout__.flush()
+
+MPLFINANCE_FONT = 'sans-serif'
+def set_korean_font():
+    if sys.platform.startswith('win'): font_family = 'Malgun Gothic'
+    elif sys.platform.startswith('darwin'): font_family = 'AppleGothic'
+    else: font_family = 'NanumGothic'
+    try:
+        plt.rc('font', family=font_family)
+        plt.rcParams['axes.unicode_minus'] = False
+        global MPLFINANCE_FONT
+        MPLFINANCE_FONT = font_family
+    except Exception:
+        pass
+set_korean_font()
+
+def load_listing():
+    if not LISTING_FILE.exists(): 
+        logging.error(f"종목 리스트 파일 없음: {LISTING_FILE}")
+        return [{"Code": "005930", "Name": "삼성전자", "DartCorpCode": "00126380"}] 
+        
+    with open(LISTING_FILE, "r", encoding="utf-8") as f: return json.load(f)
+
+def get_stock_name(symbol):
+    try:
+        items = load_listing()
+        for item in items:
+            code = item.get("Code") or item.get("code")
+            if code == symbol: return item.get("Name") or item.get("name")
+        return symbol
+    except Exception: return symbol
+
+def get_dart_corp_code(symbol):
+    try:
+        items = load_listing()
+        for item in items:
+            code = item.get("Code") or item.get("code")
+            if code == symbol: return item.get("DartCorpCode")
+        return None
+    except Exception: return None
+
+# ==============================
+# 4. 기술적 분석 패턴 로직 (상세 구현)
+# ==============================
+def find_peaks_and_troughs(df, prominence=0.01, width=3):
+    """주요 봉우리와 골짜기 인덱스 찾기"""
+    # 패턴 감지는 최근 1년(약 250일) 데이터만 사용
+    recent_df = df.iloc[-250:].copy()
+    if recent_df.empty: return np.array([]), np.array([])
+    
+    std_dev = recent_df['Close'].std()
+    # prominence: 봉우리/골짜기로 인정할 최소 높이 (변동성의 일정 비율)
+    peaks, _ = find_peaks(recent_df['Close'], prominence=std_dev * prominence, width=width)
+    troughs, _ = find_peaks(-recent_df['Close'], prominence=std_dev * prominence, width=width)
+    
+    # 원본 DF의 인덱스로 변환
+    start_idx = len(df) - len(recent_df)
+    return peaks + start_idx, troughs + start_idx
+
+def find_double_bottom(df, troughs, tolerance=0.03, min_duration=20):
+    """
+    ?? 이중 바닥 패턴 감지 (W자 패턴)
+    - 두 개의 저점이 거의 동일하고, 중간 고점(넥라인)을 돌파했는지 확인합니다.
+    - tolerance: 두 저점 간의 최대 허용 오차 (3%)
+    - min_duration: 두 저점 사이의 최소 기간 (20거래일)
+    """
+    recent_troughs = [t for t in troughs if t >= len(df) - 250]
+    
+    if len(recent_troughs) < 2: return False, None, None, None
+    
+    # 가장 최근 두 개의 골짜기: idx1 (첫 번째 바닥), idx2 (두 번째 바닥)
+    idx2, idx1 = recent_troughs[-1], recent_troughs[-2] 
+    price1, price2 = df['Close'].iloc[idx1], df['Close'].iloc[idx2]
+    
+    # 1. 기간 조건: 두 바닥 사이의 간격이 충분해야 함 (최소 20일)
+    if idx2 - idx1 < min_duration: return False, None, None, None
+    
+    # 2. 가격 조건: 두 바닥의 가격이 유사해야 함 (tolerance 이내)
+    is_price_matching = abs(price1 - price2) / min(price1, price2) < tolerance
+    if not is_price_matching: return False, None, None, None
+    
+    # 3. 넥라인 (중간 봉우리) 찾기: 첫 번째와 두 번째 바닥 사이의 최고점
+    interim_high_idx = df['Close'].iloc[idx1:idx2].idxmax()
+    interim_high = df['Close'].iloc[interim_high_idx]
+
+    # 4. 넥라인 돌파 여부
+    current_price = df['Close'].iloc[-1]
+    is_breakout = current_price > interim_high
+    
+    # 패턴이 완성되었을 때 (돌파)
+    if is_breakout: 
+        return True, interim_high, 'Breakout', interim_high # (패턴 완성)
+    
+    # 패턴이 형성 중일 때 (잠재적)
+    # 현재 가격이 첫 번째 바닥 가격보다 높고, 넥라인보다 낮다면 잠재적 패턴으로 간주
+    is_potential = (current_price > min(price1, price2) * 1.05) and (current_price < interim_high)
+    if is_potential:
+        return False, interim_high, 'Potential', interim_high # (패턴 형성 중)
+        
+    return False, None, None, None # (패턴 불일치)
+
+
+def find_triple_bottom(df, troughs, tolerance=0.03, min_duration_total=50):
+    """
+    ?? 삼중 바닥 패턴 감지 (W자+a 패턴)
+    - 세 개의 저점이 거의 동일하고, 두 개의 넥라인 중 높은 곳을 돌파했는지 확인합니다.
+    """
+    recent_troughs = [t for t in troughs if t >= len(df) - 250]
+    
+    if len(recent_troughs) < 3: return False, None, None, None
+    
+    # 최근 세 개의 골짜기: idx3, idx2, idx1 (순서대로 세 번째, 두 번째, 첫 번째)
+    idx3, idx2, idx1 = recent_troughs[-1], recent_troughs[-2], recent_troughs[-3]
+    price1, price2, price3 = df['Close'].iloc[idx1], df['Close'].iloc[idx2], df['Close'].iloc[idx3]
+    
+    # 1. 기간 조건: 전체 기간이 충분해야 함
+    if idx3 - idx1 < min_duration_total: return False, None, None, None
+    
+    # 2. 가격 조건: 세 바닥의 가격이 유사해야 함
+    min_price = min(price1, price2, price3)
+    max_price = max(price1, price2, price3)
+    is_price_matching = (max_price - min_price) / min_price < tolerance
+    if not is_price_matching: return False, None, None, None
+    
+    # 3. 넥라인 찾기: 두 개의 중간 봉우리 중 더 높은 값
+    high1 = df['Close'].iloc[idx1:idx2].max()
+    high2 = df['Close'].iloc[idx2:idx3].max()
+    neckline = max(high1, high2)
+
+    # 4. 넥라인 돌파 여부
+    is_breakout = df['Close'].iloc[-1] > neckline
+    
+    if is_breakout: 
+        return True, neckline, 'Breakout', neckline
+    
+    # 패턴 형성 중: 현재 가격이 바닥 가격보다 높고, 넥라인보다 낮다면 잠재적
+    is_potential = (df['Close'].iloc[-1] > min_price * 1.05) and (df['Close'].iloc[-1] < neckline)
+    if is_potential:
+        return False, neckline, 'Potential', neckline
+        
+    return False, None, None, None
+
+
+def find_cup_and_handle(df, peaks, troughs, min_cup_depth=0.1, handle_length_ratio=0.5):
+    """
+    ? 컵 앤 핸들 패턴 감지
+    - U자형 컵과 우측의 작은 조정(핸들)이 형성되었는지 확인합니다.
+    """
+    # 1. 컵의 왼쪽 고점(Peak) 찾기: 최근 1년 내에서 가장 높은 봉우리를 컵의 시작점으로 가정
+    recent_peaks = [p for p in peaks if p >= len(df) - 250]
+    if len(recent_peaks) < 2: return False, None, None, None
+    
+    peak_right_idx = recent_peaks[-1]
+    peak_right_price = df['Close'].iloc[peak_right_idx]
+    
+    # 2. 컵의 바닥(Trough) 찾기: 컵의 오른쪽 봉우리 이전에 가장 낮은 골짜기
+    cup_troughs = [t for t in troughs if t < peak_right_idx]
+    if not cup_troughs: return False, None, None, None
+    
+    cup_bottom_idx = cup_troughs[np.argmin(df['Close'].iloc[cup_troughs])]
+    cup_bottom_price = df['Close'].iloc[cup_bottom_idx]
+    
+    # 3. 컵의 깊이 확인: 오른쪽 봉우리 대비 충분한 깊이 (최소 10%)
+    cup_depth = (peak_right_price - cup_bottom_price) / peak_right_price
+    if cup_depth < min_cup_depth: return False, None, None, None
+    
+    # 4. 핸들 형성 확인: 오른쪽 봉우리(넥라인) 이후 가격이 하락 조정(핸들) 중인지
+    handle_start_idx = peak_right_idx 
+    handle_end_idx = len(df) - 1
+    
+    # 핸들이 컵 깊이의 1/3 ~ 1/2 수준에서 형성되는지 확인
+    max_handle_drop = peak_right_price - (cup_depth * peak_right_price * handle_length_ratio)
+    
+    is_handle_forming = df['Close'].iloc[handle_start_idx:handle_end_idx].max() <= peak_right_price
+    is_handle_forming &= df['Close'].iloc[-1] > max_handle_drop # 너무 깊게 하락하지 않았는지
+
+    # 5. 돌파 여부
+    if is_handle_forming and df['Close'].iloc[-1] > peak_right_price:
+        return True, peak_right_price, 'Breakout', peak_right_price # (돌파 완료)
+    
+    if is_handle_forming and df['Close'].iloc[-1] < peak_right_price:
+        return False, peak_right_price, 'Potential', peak_right_price # (패턴 형성 중)
+        
+    return False, None, None, None
+
+
+# ==============================
+# 5. 기본적 분석 및 악재 필터링 로직 (수정 없음)
+# 6. 분석 실행 및 필터링 (수정 없음)
+# 7. 차트 생성 로직 (수정 없음)
+# 8. 메인 함수 (수정 없음)
+# (패턴 감지 외의 나머지 코드는 이전의 FinanceDataReader 통합 버전과 동일합니다.)
+# ==============================
+
+def get_financial_statements_fdr(code):
+    fundamentals = {}
+    try:
+        df_fin = fdr.financials.get_financial_statements(code, 'Annual', 'KOR')
+        if df_fin is None or df_fin.empty: return fundamentals
+        latest_col = df_fin.columns[-1]
+
+        total_debt = df_fin.loc['부채총계', latest_col] if '부채총계' in df_fin.index else np.nan
+        total_equity = df_fin.loc['자본총계', latest_col] if '자본총계' in df_fin.index else np.nan
+        if not pd.isna(total_debt) and not pd.isna(total_equity) and total_equity != 0:
+            fundamentals['DebtToEquity'] = (total_debt / total_equity) * 100
+            
+        net_income = df_fin.loc['당기순이익', latest_col] if '당기순이익' in df_fin.index else np.nan
+        if not pd.isna(net_income) and not pd.isna(total_equity) and total_equity != 0:
+            fundamentals['ROE'] = (net_income / total_equity) * 100
+        
+    except Exception as e:
+        logging.warning(f"FinanceDataReader 재무 데이터 로드 실패 ({code}): {e}")
+    return fundamentals
+
+def get_yfinance_news(code):
+    headlines = []
+    try:
+        yf_ticker = f"{code}.KS" if not code.endswith('.KS') else code
+        ticker = yf.Ticker(yf_ticker)
+        news_list = ticker.news
+        filtered_headlines = []
+        two_months_ago = datetime.now() - timedelta(days=60)
+        for news in news_list:
+            publish_date = datetime.fromtimestamp(news.get('providerPublishTime'))
+            if publish_date >= two_months_ago:
+                filtered_headlines.append({"title": news.get('title'), "link": news.get('link')})
+            if len(filtered_headlines) >= 3: break
+        return filtered_headlines
+    except Exception as e:
+        logging.warning(f"yfinance 뉴스 로드 실패 ({code}): {e}")
+        return []
+
+def get_fundamental_data(code):
+    fundamentals = get_financial_statements_fdr(code)
+    headlines = get_yfinance_news(code)
+    return fundamentals, headlines
+
+def check_for_negative_dart_disclosures(corp_code):
+    if not DART_AVAILABLE or not corp_code: return False, None
+    try:
+        dart = Dart(DART_API_KEY)
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=60)
+        reports = dart.search(corp_code=corp_code, start_dt=start_date.strftime('%Y%m%d'))
+        negative_keywords = ["횡령", "배임", "소송 제기", "손해배상", "거래정지", "상장폐지", "감사의견 거절", "파산", "회생"]
+        for report in reports:
+            if "유상증자 결정" in report.report_nm and "제3자배정" in report.report_nm: continue 
+            if any(keyword in report.report_nm for keyword in negative_keywords):
+                return True, f"DART 공시 악재: '{report.report_nm}'"
+        return False, None
+    except Exception as e:
+        logging.error(f"DART 공시 확인 중 오류 ({corp_code}): {e}")
+        return False, None
+
+def check_for_negatives(fundamentals, headlines, code, corp_code):
+    negative_keywords_news = ["횡령", "배임", "소송", "분쟁", "거래 정지", "악재", "하락 전망", "투자주의", "적자"]
+    for news in headlines:
+        if any(keyword in news.get('title', '') for keyword in negative_keywords_news):
+            return True, f"뉴스 악재: '{news.get('title')}'"
+    roe = fundamentals.get('ROE')
+    debt_to_equity = fundamentals.get('DebtToEquity')
+    if roe is not None and roe < 0 and not pd.isna(roe): return True, f"재무 악재: ROE {roe:.1f}% (적자)"
+    if debt_to_equity is not None and debt_to_equity > 200 and not pd.isna(debt_to_equity): return True, f"재무 악재: 부채비율 {debt_to_equity:.1f}% 초과 (200% 기준)"
+    is_negative_dart, reason_dart = check_for_negative_dart_disclosures(corp_code)
+    if is_negative_dart: return True, reason_dart
+    return False, None
+
+def check_ma_conditions(df, periods, analyze_patterns):
+    results = {}
+    if len(df) < 200: analyze_patterns = False
+        
+    for p in periods:
+        if len(df) >= p:
+            df[f'ma{p}'] = df['Close'].rolling(window=p, min_periods=1).mean() 
+            results[f"above_ma{p}"] = df['Close'].iloc[-1] > df[f'ma{p}'].iloc[-1]
+    
+    if 'ma50' in df.columns and 'ma200' in df.columns and len(df) >= 200:
+        results["goldencross_50_200_detected"] = (df['ma50'].iloc[-2] < df['ma200'].iloc[-2] and df['ma50'].iloc[-1] > df['ma200'].iloc[-1])
+    
+    if analyze_patterns:
+        peaks, troughs = find_peaks_and_troughs(df)
+        is_db, neckline_db, db_status, _ = find_double_bottom(df, troughs)
+        is_tb, neckline_tb, tb_status, _ = find_triple_bottom(df, troughs)
+        is_ch, neckline_ch, ch_status, _ = find_cup_and_handle(df, peaks, troughs)
+        
+        results['pattern_double_bottom'] = is_db
+        results['pattern_double_bottom_status'] = db_status
+        results['db_neckline_price'] = neckline_db
+
+        results['pattern_triple_bottom'] = is_tb
+        results['pattern_triple_bottom_status'] = tb_status
+        results['tb_neckline_price'] = neckline_tb
+
+        results['pattern_cup_and_handle'] = is_ch
+        results['pattern_cup_and_handle_status'] = ch_status
+        results['ch_neckline_price'] = neckline_ch
+
+    return results
+
+def analyze_symbol(item, periods, analyze_patterns, exclude_negatives, pattern_type_filter):
+    code = item.get("Code") or item.get("code")
+    name = item.get("Name") or item.get("name")
+    corp_code = item.get("DartCorpCode")
+    path = DATA_DIR / f"{code}.parquet"
+    if not path.exists(): return None
+    
+    try:
+        df = pd.read_parquet(path)
+        if len(df) < 50: return None
+
+        fundamentals, headlines = get_fundamental_data(code)
+        
+        if exclude_negatives:
+            is_negative, reason = check_for_negatives(fundamentals, headlines, code, corp_code)
+            if is_negative:
+                logging.warning(f"[FILTERED] {name} ({code}): 악재로 제외됨. 이유: {reason}")
+                return None
+        
+        analysis_results = check_ma_conditions(df, periods, analyze_patterns) 
+        
+        is_match = True
+        if pattern_type_filter:
+            if pattern_type_filter == 'goldencross': is_match = analysis_results.get("goldencross_50_200_detected", False)
+            elif pattern_type_filter == 'double_bottom': 
+                status = analysis_results.get("pattern_double_bottom_status")
+                is_match = status in ['Breakout', 'Potential']
+            elif pattern_type_filter == 'triple_bottom': 
+                status = analysis_results.get("pattern_triple_bottom_status")
+                is_match = status in ['Breakout', 'Potential']
+            elif pattern_type_filter == 'cup_and_handle': 
+                status = analysis_results.get("pattern_cup_and_handle_status")
+                is_match = status in ['Breakout', 'Potential']
+
+        if not is_match: return None
+        
+        if analysis_results or fundamentals or headlines:
+            fundamentals_clean = {k: v for k, v in fundamentals.items() if v is not None and not pd.isna(v)}
+            analysis_clean = {k: v for k, v in analysis_results.items() if v is not None and not pd.isna(v)}
+            
+            return {
+                "ticker": code,
+                "name": name,
+                "technical_conditions": analysis_clean,
+                "fundamentals": fundamentals_clean,
+                "recent_news_headlines": headlines
+            }
+        return None
+    except Exception as e:
+        logging.error(f"[ERROR] {code} {name} 분석 실패: {e}\n{traceback.format_exc()}")
+        return None
+
+def run_analysis(workers, ma_periods_str, analyze_patterns, exclude_negatives, pattern_type_filter):
+    start_time = time.time()
+    periods = [int(p.strip()) for p in ma_periods_str.split(',') if p.strip().isdigit()]
+    if pattern_type_filter: analyze_patterns = True 
+
+    items = load_listing()
+    results = []
+    logging.info(f"분석 시작: 총 {len(items)} 종목, 최대 워커 {workers}개 사용.")
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_item = {
+            executor.submit(analyze_symbol, item, periods, analyze_patterns, exclude_negatives, pattern_type_filter): item
+            for item in items
+        }
+        
+        for future in as_completed(future_to_item):
+            item = future_to_item[future]
+            try:
+                r = future.result()
+                if r: results.append(r)
+            except Exception as e:
+                code = item.get("Code") or item.get("code")
+                name = item.get("Name") or item.get("name")
+                logging.error(f"[ERROR] {code} {name} 처리 중 예외 발생: {e}")
+    
+    end_time = time.time()
+    logging.info(f"분석 완료: {len(results)}개 종목 필터링 됨. 총 소요 시간: {end_time - start_time:.2f}초")
+    safe_print_json({"results": results, "mode": "analyze", "filter": pattern_type_filter})
+
+def generate_chart(symbol, ma_periods_str):
+    code = symbol
+    name = get_stock_name(code)
+    periods = [int(p.strip()) for p in ma_periods_str.split(',') if p.strip().isdigit()]
+    path = DATA_DIR / f"{code}.parquet"
+    if not path.exists():
+        safe_print_json({"error": f"데이터 파일을 찾을 수 없음: {path}"})
+        return
+
+    try:
+        df = pd.read_parquet(path)
+        if df.empty:
+            safe_print_json({"error": "데이터프레임이 비어 있습니다."})
+            return
+            
+        df = df.iloc[-250:].copy() 
+        ma_lines = []
+        for p in periods:
+            if len(df) >= p:
+                ma_name = f'ma{p}'
+                df[ma_name] = df['Close'].rolling(window=p, min_periods=1).mean()
+                ma_lines.append(mpf.make_addplot(df[ma_name], panel=0, type='line', width=1.0, color='blue' if p == 200 else ('green' if p == 50 else 'orange'), secondary_y=False))
+
+        volume_plot = mpf.make_addplot(df['Volume'], type='bar', panel=1, color='gray', secondary_y=False)
+        mc = mpf.make_marketcolors(up='red', down='blue', wick='black', edge='black', volume='gray')
+        s = mpf.make_mpf_style(marketcolors=mc, gridcolor='gray', figcolor='white', y_on_right=False, 
+                               rc={'font.family': MPLFINANCE_FONT})
+
+        fig, axes = mpf.plot(
+            df, 
+            type='candle', 
+            style=s,
+            title=f"{name} ({code}) Price Chart with MAs",
+            ylabel='Price',
+            ylabel_lower='Volume',
+            volume=True,
+            addplot=ma_lines + [volume_plot],
+            figscale=1.5,
+            returnfig=True
+        )
+
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', bbox_inches='tight')
+        plt.close(fig)
+        image_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+        
+        safe_print_json({
+            "ticker": code,
+            "name": name,
+            "chart_image_base64": image_base64,
+            "mode": "chart"
+        })
+
+    except Exception as e:
+        logging.error(f"[ERROR] 차트 생성 실패 ({code} {name}): {e}\n{traceback.format_exc()}")
+        safe_print_json({"error": f"차트 생성 실패: {e}"})
+
+def main():
+    parser = argparse.ArgumentParser(description="주식 데이터 분석 및 차트 생성 스크립트")
+    parser.add_argument("--mode", type=str, required=True, choices=['analyze', 'chart'], help="실행 모드 선택: 'analyze' 또는 'chart'")
+    parser.add_argument("--workers", type=int, default=os.cpu_count() * 2, help="분석 모드에서 사용할 최대 스레드 수")
+    parser.add_argument("--ma_periods", type=str, default="50,200", help="이동 평균선 기간 지정 (쉼표로 구분)")
+    parser.add_argument("--symbol", type=str, help="차트 모드에서 사용할 종목 코드")
+    parser.add_argument("--analyze_patterns", action="store_true", help="패턴 감지 활성화")
+    parser.add_argument("--pattern_type", type=str, choices=['double_bottom', 'triple_bottom', 'cup_and_handle', 'goldencross'], help="필터링할 패턴 종류")
+    parser.add_argument("--exclude_negatives", action="store_true", help="악재성 종목 제외")
+
+    args = parser.parse_args()
+    setup_env()
+
+    try:
+        if args.mode == 'analyze':
+            if args.pattern_type: args.analyze_patterns = True
+            run_analysis(args.workers, args.ma_periods, args.analyze_patterns, args.exclude_negatives, args.pattern_type) 
+        elif args.mode == 'chart':
+            if not args.symbol: 
+                logging.error("차트 모드에는 --symbol 인수가 필수입니다.")
+                sys.exit(1)
+            generate_chart(args.symbol, args.ma_periods) 
+            
+    except Exception as e:
+        logging.critical(f"스크립트 실행 중 치명적인 오류 발생: {e}\n{traceback.format_exc()}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

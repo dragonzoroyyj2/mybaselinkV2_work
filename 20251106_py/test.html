@@ -1,0 +1,187 @@
+<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>주식 배치 실시간 대시보드</title><script src="https://www.google.com/search?q=https://cdn.tailwindcss.com"></script><style>@import url('https://www.google.com/search?q=https://fonts.googleapis.com/css2%3Ffamily%3DInter:wght%40400%3B600%3B700%26display%3Dswap');body {font-family: 'Inter', sans-serif;background-color: #f3f4f6; /* 밝은 회색 배경 /color: #1f2937; / 어두운 텍스트 /padding: 20px;}.container {max-width: 1200px;margin: auto;}.stock-card {background-color: white;border: 1px solid #e5e7eb;transition: all 0.2s;box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);}.stock-card:hover {box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);transform: translateY(-2px);}.status-badge {padding: 2px 8px;border-radius: 9999px;font-size: 0.75rem;font-weight: 600;}.bg-running { background-color: #d1fae5; color: #065f46; } / Tailwind green-100/green-800 /.bg-idle { background-color: #fee2e2; color: #991b1b; } / Tailwind red-100/red-800 /.bg-success { background-color: #dbeafe; color: #1e40af; } / Tailwind blue-100/blue-800 /.log-console {background-color: #1f2937; / Dark background for console /color: #d1fae5; / Light green text /height: 300px;overflow-y: scroll;font-family: monospace;font-size: 0.85rem;padding: 10px;border-radius: 8px;box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);}.log-line {line-height: 1.4;}.progress-bar {height: 8px;background-color: #e5e7eb;border-radius: 4px;overflow: hidden;}.progress-fill {height: 100%;background-color: #10b981; / Tailwind emerald-500 */transition: width 0.4s ease-in-out;}</style></head><body><div class="container"><header class="mb-8"><h1 class="text-3xl font-bold text-gray-800">주식 배치 작업 실시간 모니터링</h1><p class="text-gray-500 mt-1">서버에서 실시간으로 전송되는 주식 배치 작업 상태를 확인합니다.</p></header><!-- Control Panel -->
+<div class="flex space-x-4 mb-8">
+    <button id="startBatchBtn" class="px-6 py-2 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition duration-150">
+        ▶️ 배치 작업 시작 (Simulated)
+    </button>
+    <button id="stopBatchBtn" class="px-6 py-2 bg-red-500 text-white font-semibold rounded-lg shadow-md hover:bg-red-600 transition duration-150" disabled>
+        ⏹️ 배치 작업 중지
+    </button>
+    <button id="clearLogBtn" class="px-6 py-2 bg-gray-300 text-gray-800 font-semibold rounded-lg shadow-md hover:bg-gray-400 transition duration-150">
+        🗑️ 로그 지우기
+    </button>
+</div>
+
+<!-- Stock Cards Grid -->
+<div id="stockGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+    <!-- Stock Cards will be injected here -->
+</div>
+
+<!-- Log Console -->
+<h2 class="text-xl font-semibold text-gray-700 mb-3">실시간 로그 콘솔</h2>
+<div id="logConsole" class="log-console">
+    <div class="log-line text-gray-400">시스템: 초기화 완료. 배치 작업 시작 버튼을 눌러주세요.</div>
+</div>
+</div><script>// --- Configuration ---// 가짜 SSE를 위한 데이터와 상태를 관리하는 객체입니다.const STOCK_SYMBOLS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA'];const BATCH_DATA = STOCK_SYMBOLS.map(symbol => ({symbol: symbol,status: 'IDLE', // IDLE, RUNNING, SUCCESS, FAILEDprogress: 0,lastUpdate: 'N/A'}));let isBatchRunning = false;
+let sseIntervalId = null;
+const logConsole = document.getElementById(&#39;logConsole&#39;);
+
+// --- Utility Functions ---
+
+/** 로그를 콘솔에 추가하고 스크롤을 맨 아래로 이동합니다. */
+function addLog(message, type = &#39;INFO&#39;) {
+    const now = new Date().toLocaleTimeString(&#39;ko-KR&#39;);
+    const color = type === &#39;ERROR&#39; ? &#39;text-red-400&#39; : type === &#39;SUCCESS&#39; ? &#39;text-blue-400&#39; : &#39;text-gray-200&#39;;
+    const logEntry = document.createElement(&#39;div&#39;);
+    logEntry.className = `log-line ${color}`;
+    logEntry.innerHTML = `[${now}] &lt;span class=&quot;font-bold&quot;&gt;${type}&lt;/span&gt;: ${message}`;
+    logConsole.appendChild(logEntry);
+    logConsole.scrollTop = logConsole.scrollHeight;
+}
+
+/** 주식 카드 UI를 업데이트합니다. */
+function updateStockCard(data) {
+    const cardElement = document.getElementById(`card-${data.symbol}`);
+    if (!cardElement) return;
+
+    // 상태 배지 업데이트
+    const statusBadge = cardElement.querySelector(&#39;.status-badge&#39;);
+    statusBadge.textContent = data.status;
+    statusBadge.className = `status-badge ${data.status === &#39;RUNNING&#39; ? &#39;bg-running&#39; : data.status === &#39;IDLE&#39; ? &#39;bg-idle&#39; : &#39;bg-success&#39;}`;
+
+    // 진행률 바 업데이트
+    const progressFill = cardElement.querySelector(&#39;.progress-fill&#39;);
+    progressFill.style.width = `${data.progress}%`;
+
+    // 진행률 텍스트 및 최종 업데이트 시간 업데이트
+    cardElement.querySelector(&#39;.progress-text&#39;).textContent = `${data.progress}% 완료`;
+    cardElement.querySelector(&#39;.last-update&#39;).textContent = data.lastUpdate;
+}
+
+/** 초기 주식 카드를 생성합니다. */
+function initializeStockGrid() {
+    const stockGrid = document.getElementById(&#39;stockGrid&#39;);
+    stockGrid.innerHTML = BATCH_DATA.map(item =&gt; `
+        &lt;div id=&quot;card-${item.symbol}&quot; class=&quot;stock-card p-6 rounded-xl&quot;&gt;
+            &lt;div class=&quot;flex justify-between items-start mb-4&quot;&gt;
+                &lt;h3 class=&quot;text-2xl font-bold&quot;&gt;${item.symbol}&lt;/h3&gt;
+                &lt;span class=&quot;status-badge bg-idle&quot; style=&quot;min-width: 60px; text-align: center;&quot;&gt;${item.status}&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div class=&quot;mb-4&quot;&gt;
+                &lt;div class=&quot;progress-bar&quot;&gt;
+                    &lt;div class=&quot;progress-fill&quot; style=&quot;width: ${item.progress}%;&quot;&gt;&lt;/div&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div class=&quot;flex justify-between text-sm text-gray-500&quot;&gt;
+                &lt;span class=&quot;progress-text&quot;&gt;${item.progress}% 완료&lt;/span&gt;
+                &lt;span&gt;최종 업데이트: &lt;span class=&quot;last-update&quot;&gt;${item.lastUpdate}&lt;/span&gt;&lt;/span&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+    `).join(&#39;&#39;);
+
+    BATCH_DATA.forEach(updateStockCard); // 초기 상태 적용
+}
+
+// --- SSE Simulation Logic ---
+
+/** SSE 이벤트를 시뮬레이션하고 UI를 업데이트합니다. */
+function simulateSSEvent() {
+    if (!isBatchRunning) return;
+
+    let allFinished = true;
+
+    BATCH_DATA.forEach(item =&gt; {
+        if (item.status === &#39;RUNNING&#39;) {
+            allFinished = false;
+
+            // 1. 진행률 증가
+            const increment = Math.floor(Math.random() * 20) + 1; // 1% ~ 20% 증가
+            item.progress = Math.min(100, item.progress + increment);
+            item.lastUpdate = new Date().toLocaleTimeString(&#39;ko-KR&#39;);
+
+            // 2. 100% 완료 시 상태 변경
+            if (item.progress &gt;= 100) {
+                item.status = &#39;SUCCESS&#39;;
+                item.progress = 100;
+                addLog(`[${item.symbol}] 배치 작업 성공적으로 완료.`, &#39;SUCCESS&#39;);
+            } else {
+                addLog(`[${item.symbol}] 데이터 처리 중... (진행률: ${item.progress}%)`);
+            }
+
+            // 3. UI 업데이트
+            updateStockCard(item);
+        }
+    });
+
+    // 모든 작업이 완료되었는지 확인
+    if (allFinished) {
+        // 모든 항목이 IDLE이거나 SUCCESS인 경우
+        const isAllComplete = BATCH_DATA.every(item =&gt; item.status !== &#39;RUNNING&#39;);
+        if (isAllComplete) {
+            stopBatch(); // 작업 중단
+            addLog(&#39;모든 주식 배치 작업이 완료되었습니다. 대시보드를 확인하세요.&#39;, &#39;SUCCESS&#39;);
+        }
+    }
+}
+
+/** 배치 작업 시작을 처리합니다. */
+function startBatch() {
+    if (isBatchRunning) return;
+
+    isBatchRunning = true;
+    document.getElementById(&#39;startBatchBtn&#39;).disabled = true;
+    document.getElementById(&#39;stopBatchBtn&#39;).disabled = false;
+
+    // 데이터 초기화 및 RUNNING 상태로 변경
+    BATCH_DATA.forEach(item =&gt; {
+        item.status = &#39;RUNNING&#39;;
+        item.progress = 0;
+        item.lastUpdate = &#39;처리 시작됨&#39;;
+        updateStockCard(item);
+    });
+
+    addLog(&#39;--- 배치 작업 시작 ---&#39;, &#39;INFO&#39;);
+    addLog(&#39;서버 SSE 연결 시도...&#39;);
+
+    // 1초마다 SSE 이벤트를 시뮬레이션합니다.
+    sseIntervalId = setInterval(simulateSSEvent, 1000);
+}
+
+/** 배치 작업 중지를 처리합니다. */
+function stopBatch() {
+    isBatchRunning = false;
+    document.getElementById(&#39;startBatchBtn&#39;).disabled = false;
+    document.getElementById(&#39;stopBatchBtn&#39;).disabled = true;
+
+    if (sseIntervalId) {
+        clearInterval(sseIntervalId);
+        sseIntervalId = null;
+    }
+
+    // 현재 진행 중이던 항목은 IDLE로 복귀시키지 않고, RUNNING 상태로 유지합니다.
+    BATCH_DATA.forEach(item =&gt; {
+        if (item.status === &#39;RUNNING&#39;) {
+            item.status = &#39;IDLE&#39;; // 중지된 항목은 IDLE로 변경
+            item.lastUpdate = &#39;작업 중지됨&#39;;
+        }
+        updateStockCard(item);
+    });
+
+    addLog(&#39;배치 작업이 사용자 요청으로 중지되었습니다.&#39;, &#39;ERROR&#39;);
+}
+
+/** 로그 콘솔을 지웁니다. */
+function clearLog() {
+    logConsole.innerHTML = &#39;&#39;;
+    addLog(&#39;로그 콘솔이 지워졌습니다.&#39;, &#39;INFO&#39;);
+}
+
+// --- Event Listeners and Initialization ---
+
+document.addEventListener(&#39;DOMContentLoaded&#39;, () =&gt; {
+    initializeStockGrid();
+
+    document.getElementById(&#39;startBatchBtn&#39;).addEventListener(&#39;click&#39;, startBatch);
+    document.getElementById(&#39;stopBatchBtn&#39;).addEventListener(&#39;click&#39;, stopBatch);
+    document.getElementById(&#39;clearLogBtn&#39;).addEventListener(&#39;click&#39;, clearLog);
+});
+</script></body></html>

@@ -1,0 +1,31 @@
+컴파일
+"C:\Program Files\Java\jdk1.8.0_241\bin\javac.exe" C:\LocBootProject\InstallCert.java
+
+실행
+"C:\Program Files\Java\jdk1.8.0_241\bin\java.exe" -cp C:\LocBootProject\InstallCert start.spring.io
+
+1. https://start.spring.io/  사이트 접속 
+2. 현재사이트 url 창 왼쪽에 자물쇠 클릭 해서 상세 보기 에서 인증서 내보내기 선택 후 
+startspringio.cer 이름 으로 저장
+
+3.
+
+& "C:\LocBootProject\jdk\jdk21\bin\keytool.exe" `
+ -importcert `
+ -file "C:\LocBootProject\jdk\jdk21\lib\security\startspringio.cer" `
+ -alias startspringio `
+ -keystore "C:\LocBootProject\jdk\jdk21\lib\security\cacerts" `
+ -storepass changeit
+
+4. 이클립스 다시 실행 후 프로젝트 생성 
+
+d
+
+
+
+
+& "C:\LocBootProject\jdk\jdk21\bin\keytool.exe" -importcert `
+ -alias marketplace_eclipse_org `
+ -file "C:\LocBootProject\jdk\jdk21\lib\security\marketplace.crt" 
+ -keystore "C:\LocBootProject\jdk\jdk21\lib\security\cacerts" `
+ -storepass changeit

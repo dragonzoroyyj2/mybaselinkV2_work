@@ -1,0 +1,24 @@
+제시해주신 Python 스크립트는 **명령줄 인터페이스(Command Line Interface, CLI)**를 통해
+ 실행되도록 argparse 라이브러리를 사용해 설계되어 있습니다.따라서 이 스크립트를 실행하기 위해 필요한 것은 Python 인터프리터와 스크립트가 의존하는 필수 라이브러리들입니다. 
+별도의 "cmd 라이브러리"가 필요하지 않으며, 여기서 cmd는 일반적으로 운영체제의 명령 프롬프트(Command Prompt, CMD) 또는 터미널을 의미합니다.
+?? 스크립트 실행을 위한 준비 과정이 스크립트를 실행하려면 다음 세 가지 단계가 필요합니다.1. Python 설치 및 환경 설정스크립트는 Python으로 작성되었으므로, 
+Python 3가 시스템에 설치되어 있어야 합니다.2. 필수 라이브러리 설치스크립트 초반에 임포트된 
+라이브러리 중 os, sys, json, time, logging, argparse, traceback, socket, pathlib, datetime, concurrent.futures, io, base64, glob 등은
+ 표준 라이브러리이지만, 아래의 외부 라이브러리들은 별도로 설치해야 합니다.Bashpip install pandas numpy scipy ta scikit-learn pyarrow
+라이브러리용도pandas데이터프레임 처리 (주가 데이터 로드 및 조작)numpy수치 계산 및 배열 처리scipy신호 처리 (find_peaks 봉우리 감지)ta기술적 
+분석 지표 계산 (RSI, MACD, MA 등)scikit-learn머신러닝 (K-Means 클러스터링)pyarrow.parquet 파일 형식 로드를 위해 필요 (Pandas 종속성)
+
+
+pip install pandas numpy scipy ta scikit-learn pyarrow
+===========================================================
+
+
+
+"C:\Users\User\AppData\Local\Programs\Python\Python310\python.exe" C:\Test\test_datr_no_pattern.py --mode analyze --pattern_type goldencross --top_n 10 --ma_periods 20,50,200
+
+
+항목,전자 파일 (DART 포함),후자 파일 (DART 제거),후자가 더 좋은 점
+속도,DART API 호출로 인해 느려질 수 있음,외부 API 호출이 없어 더 빠름,수많은 종목을 병렬로 분석할 때 속도 차이가 크게 나타날 수 있습니다.
+안정성,외부 API (DART 서버) 상태에 영향을 받음,오직 로컬 데이터에만 의존하여 안정적임,DART API 키 만료나 서버 장애 같은 외부 변수가 사라집니다.
+단순성,DART 관련 코드 및 설정 관리 필요,코드가 간결하고 관리 및 유지보수가 쉬움,코드를 이해하고 수정하기가 더 쉽습니다.
+의존성,requests 라이브러리 필요,필수 라이브러리 외 추가 의존성이 없음,환경 설정(라이브러리 설치)이 더 간단합니다.

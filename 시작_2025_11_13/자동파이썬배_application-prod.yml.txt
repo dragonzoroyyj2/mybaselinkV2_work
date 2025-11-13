@@ -1,0 +1,80 @@
+###########################################################################
+# application-prod.yml
+# ?? Prod (운영/회사) 환경 전용 설정 파일
+###########################################################################
+
+###########################################################################
+# ?? 서버 쿠키 정책 HTTPS + 보안 모드
+###########################################################################
+app:
+  cookie:
+    same-site: Lax
+    # ?? 운영 환경에서는 HTTPS 적용 후 반드시 true로 변경해야 함.
+    # ENV: COOKIE_SECURE (기본값: false)
+    secure: ${COOKIE_SECURE:false}
+
+---
+###########################################################################
+# ?? Python 실행 환경 설정
+###########################################################################
+python:
+  # 1. 서버에 설치된 Python 실행 파일의 절대 경로 (ENV: PYTHON_EXECUTABLE)
+  executable:
+    path: ${PYTHON_EXECUTABLE:C:/SET_MyBaseLinkV2/Python/Python310/python.exe}
+
+  # 2. 서버에서 프로젝트 Python 스크립트 및 데이터가 위치할 고정 경로 (ENV: PYTHON_ROOT_PATH)
+  root:
+    path: ${PYTHON_ROOT_PATH:C:/SET_MyBaseLinkV2/server/python_scripts}
+
+  working:
+    dir: "${python.root.path}/python/stock/py"
+
+  update_stock_listing:
+    path: "${python.root.path}/python/stock/py/update_stock_listing.py"
+
+  update_stock_listing_prod:
+    path: "${python.root.path}/python/stock/py/update_stock_listing_prod.py"
+
+  find_last_close_downward:
+    path: "${python.root.path}/python/stock/py/find_last_close_downward.py"
+
+  athena_k_market_ai_prod:
+    path: "${python.root.path}/python/stock/py/athena_k_market_ai_prod.py"
+
+  stock:
+    stock_listing:
+      path: "${python.root.path}/python/data/stock_list/stock_listing.json"
+
+    stock_listing_prod:
+      path: "${python.root.path}/python/data/stock_list/stock_listing_prod.json"
+
+---
+###########################################################################
+# ? DataSource (PostgreSQL 접속)
+# ?? 보안 확보: DB 인증 정보는 반드시 환경 변수(ENV)로 주입
+###########################################################################
+spring:
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    # ENV: DB_URL (기본값: localhost)
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/mybaselink_db}
+    # ENV: DB_USERNAME (기본값: mybaseuser)
+    username: ${DB_USERNAME:mybaseuser}
+    # ENV: DB_PASSWORD (기본값: mybaseuser1234)
+    password: ${DB_PASSWORD:mybaseuser1234}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      validation-timeout: 5000
+      leak-detection-threshold: 0
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect

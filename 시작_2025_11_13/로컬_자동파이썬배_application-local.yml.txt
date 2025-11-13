@@ -1,0 +1,78 @@
+###########################################################################
+# application-local.yml
+# ?? Local 환경 전용 설정 파일 (집 PC)
+# - 공통(application.yml)을 상속받고, 아래 값들만 덮어씀
+###########################################################################
+
+###########################################################################
+# ?? 로컬 쿠키 정책 (SameSite=None, secure=false)
+###########################################################################
+app:
+  cookie:
+    same-site: None
+    secure: false
+
+###########################################################################
+# ?? Python 실행 환경 설정 (집)
+# ?? 일관성 확보: 환경 변수 참조 문법 적용
+###########################################################################
+python:
+  # 환경 변수 PYTHON_EXECUTABLE을 우선 사용하고, 없으면 로컬 기본값 사용
+  executable:
+    path: ${PYTHON_EXECUTABLE:C:/Users/dragon/AppData/Local/Programs/Python/Python310/python.exe}
+
+  # 환경 변수 PYTHON_ROOT_PATH를 우선 사용하고, 없으면 로컬 기본값 사용
+  root:
+    path: ${PYTHON_ROOT_PATH:D:/project/dev_boot_project/workspace/MyBaseLinkV2}
+
+  # 이하 경로는 root 경로를 참조하므로 그대로 유지
+  working:
+    dir: "${python.root.path}/python/stock/py"
+
+  update_stock_listing:
+    path: "${python.root.path}/python/stock/py/update_stock_listing.py"
+
+  update_stock_listing_prod:
+    path: "${python.root.path}/python/stock/py/update_stock_listing_prod.py"
+
+  find_last_close_downward:
+    path: "${python.root.path}/python/stock/py/find_last_close_downward.py"
+
+  athena_k_market_ai_prod:
+    path: "${python.root.path}/python/stock/py/athena_k_market_ai_prod.py"
+
+  stock:
+    stock_listing:
+      path: "${python.root.path}/python/data/stock_list/stock_listing.json"
+
+    stock_listing_prod:
+      path: "${python.root.path}/python/data/stock_list/stock_listing_prod.json"
+
+###########################################################################
+# ? DataSource (PostgreSQL 접속)
+# ?? 일관성 확보: 운영 환경과 동일하게 환경 변수 참조 문법 적용
+###########################################################################
+spring:
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: jdbc:postgresql://localhost:5432/mybaselink_db
+    # 환경 변수 DB_USERNAME을 우선 사용하고, 없으면 로컬 기본값 사용
+    username: ${DB_USERNAME:mybaseuser}
+    # 환경 변수 DB_PASSWORD를 우선 사용하고, 없으면 로컬 기본값 사용
+    password: ${DB_PASSWORD:mybaseuser1234}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      validation-timeout: 5000
+      leak-detection-threshold: 0
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect

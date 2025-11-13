@@ -1,0 +1,435 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>📈 풀 기능 봉차트: 줌, 팬, 동기화 (외부망 환경용)</title>
+<!-- Tailwind CDN을 로드합니다. (외부망 필요) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+body { 
+    font-family: 'Inter', sans-serif; 
+    background-color: #f3f4f6; 
+    padding: 20px; 
+    min-height: 100vh;
+}
+.chart-canvas-wrap {
+    width: 100%;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 24px;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+}
+.chart-container-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: #1f2937;
+    border-bottom: 2px solid #e5e7eb;
+    padding-bottom: 8px;
+}
+/* 캔버스 크기 지정 및 반응형 */
+.chart-area { width: 100%; height: 360px; }
+.indicator-area { width: 100%; height: 200px; }
+
+/* 줌/팬 안내 스타일 */
+.zoom-guide {
+    background-color: #e0f7fa;
+    color: #00838f;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    margin-top: -12px;
+    margin-bottom: 16px;
+    border-left: 4px solid #00bcd4;
+}
+
+/* 축의 그리드 스타일 */
+.soft-grid {
+    border-color: rgba(200, 200, 200, 0.4);
+    border-dash: [4, 4];
+    draw-border: false;
+}
+
+@media (max-width: 640px) {
+    .chart-area { height: 280px; }
+    .indicator-area { height: 150px; }
+    body { padding: 10px; }
+}
+</style>
+
+<!-- 🚨 외부 라이브러리 로드 (이전 실패의 원인, 외부망에서 필수) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<!-- 줌/팬 기능을 위한 플러그인과 그 필수 종속성 (Hammer.js) -->
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+
+</head>
+<body>
+
+<div class="max-w-4xl mx-auto">
+    <h1 class="text-3xl font-extrabold mb-8 text-center text-indigo-700">🚀 풀 기능 봉차트 시뮬레이션</h1>
+
+    <div class="zoom-guide">
+        <p>✅ **기능 안내:** 마우스 휠(스크롤)로 확대/축소, 마우스 드래그로 이동(팬)이 가능합니다. 이 기능들은 CDN 로드가 필요합니다.</p>
+    </div>
+
+    <!-- 📌 1. 가격 차트 영역 -->
+    <div class="chart-canvas-wrap">
+        <h2 class="chart-container-title">가격 차트 (봉차트 + MA)</h2>
+        <canvas id="priceChart" class="chart-area"></canvas>
+    </div>
+
+    <!-- 📌 2. MACD 차트 영역 -->
+    <div class="chart-canvas-wrap">
+        <h2 class="chart-container-title">MACD 지표</h2>
+        <canvas id="macdChart" class="indicator-area"></canvas>
+    </div>
+</div>
+
+<script>
+// 전역 차트 인스턴스 저장소
+let priceChart = null;
+let macdChart = null;
+
+// 격자선(그리드) 설정
+const softDashedGrid = {
+    display: true,
+    color: 'rgba(200, 200, 200, 0.5)', 
+    borderDash: [4, 4], 
+    drawBorder: false 
+};
+
+// ==========================================================
+// 📜 차트 동기화 함수 (줌/팬)
+// ==========================================================
+/**
+ * 한 차트에서 줌/팬이 발생했을 때 다른 차트의 X축을 동기화합니다.
+ * @param {Chart} sourceChart 이벤트가 발생한 차트
+ * @param {Chart} targetChart 동기화할 대상 차트
+ */
+function syncCharts(sourceChart, targetChart) {
+    if (!sourceChart || !targetChart) return;
+
+    const sourceScale = sourceChart.scales.x;
+    const targetScale = targetChart.scales.x;
+
+    if (sourceScale && targetScale) {
+        // Source 차트의 min/max 값을 Target 차트에 복사
+        targetScale.min = sourceScale.min;
+        targetScale.max = sourceScale.max;
+        // 애니메이션 없이 즉시 업데이트
+        targetChart.update('none'); 
+    }
+}
+
+
+/* ==========================================================
+ * 🎨 Custom Candlestick Plugin (봉차트 그리기)
+ * ========================================================== */
+const candlestickPlugin = {
+    id: 'candlestick_drawer',
+    // 차트 데이터셋이 그려지기 전에 사용자 정의 봉차트를 그립니다.
+    beforeDatasetsDraw(chart, args, options) {
+        const { ctx, chartArea, scales: { x, y } } = chart;
+        
+        const datasets = chart.data.datasets.filter(ds => ds.type === 'candlestick');
+        if (datasets.length === 0) return;
+
+        ctx.save();
+        
+        // 색상 설정 (한국 표준: 상승 빨강, 하락 파랑)
+        const upColor = options.upColor || '#ef4444'; // red-500
+        const downColor = options.downColor || '#3b82f6'; // blue-500
+        
+        datasets.forEach(dataset => {
+            const data = dataset.data;
+            
+            // 봉차트 너비 계산 (동적 계산)
+            // 캔버스에 표시된 데이터 포인트의 간격을 기반으로 너비를 설정
+            const meta = chart.getDatasetMeta(dataset.index);
+            
+            data.forEach((d, index) => {
+                if (d.o === undefined || d.c === undefined || d.h === undefined || d.l === undefined) return;
+
+                const element = meta.data[index];
+                if (!element) return; // 줌/팬 등으로 데이터 포인트가 숨겨진 경우
+
+                const xPos = element.x;
+                const width = element.width * 0.6; // Chart.js가 계산한 너비의 60%
+
+                // Y 좌표 변환
+                const yOpen = y.getPixelForValue(d.o);
+                const yClose = y.getPixelForValue(d.c);
+                const yHigh = y.getPixelForValue(d.h);
+                const yLow = y.getPixelForValue(d.l);
+
+                // 색상 결정
+                const isUp = d.c >= d.o;
+                const color = isUp ? upColor : downColor;
+                
+                ctx.strokeStyle = color; 
+                ctx.fillStyle = color;   
+                ctx.lineWidth = 1;
+
+                // 1. 꼬리 (High-Low)
+                ctx.beginPath();
+                ctx.moveTo(xPos, yHigh);
+                ctx.lineTo(xPos, yLow);
+                ctx.stroke();
+
+                // 2. 몸통 (Open-Close)
+                const bodyTop = Math.min(yOpen, yClose);
+                const bodyBottom = Math.max(yOpen, yClose);
+                const left = xPos - width / 2;
+
+                ctx.fillRect(left, bodyTop, width, bodyBottom - bodyTop);
+            });
+        });
+        
+        ctx.restore();
+    }
+};
+
+// Custom Plugin 등록
+Chart.register(candlestickPlugin); 
+
+
+/* ==========================================================
+ * 📜 헬퍼 함수: 더미 데이터 생성 및 변환
+ * ========================================================== */
+function generateDummyData() {
+    // 실제 데이터가 없으므로 100일간의 더미 OHLCV, MA, MACD 데이터를 생성합니다.
+    const data = { ohlcv_data: [], ma_data: { MA20: [], MA50: [], MA200: [] }, macd_data: { MACD: [], Signal: [], Histogram: [] } };
+    const days = 100;
+    let basePrice = 10000;
+    const allPrices = [];
+
+    for (let i = 0; i < days; i++) {
+        const date = new Date();
+        date.setDate(date.getDate() - days + i);
+        const dateString = date.toISOString().split('T')[0];
+
+        const fluctuation = Math.random() * 200 - 100;
+        basePrice = Math.max(8000, basePrice + fluctuation * 0.5); 
+        
+        const open = basePrice + (Math.random() * 50 - 25);
+        const close = basePrice + (Math.random() * 50 - 25);
+        
+        const high = Math.max(open, close) + (Math.random() * 10 + 5);
+        const low = Math.min(open, close) - (Math.random() * 10 + 5);
+
+        data.ohlcv_data.push({ x: dateString, o: open, h: high, l: low, c: close });
+        allPrices.push(close);
+
+        // MACD 더미 계산
+        const macd_val = (Math.sin(i / 10) * 50) + (Math.cos(i / 50) * 100) + 10;
+        const signal_val = macd_val * 0.95;
+        const hist_val = macd_val - signal_val;
+
+        data.macd_data.MACD.push({ x: dateString, y: macd_val });
+        data.macd_data.Signal.push({ x: dateString, y: signal_val });
+        data.macd_data.Histogram.push({ x: dateString, y: hist_val });
+    }
+    
+    // MA 더미 계산 (간단한 SMA)
+    const calculateMA = (period) => {
+        const ma = [];
+        for (let i = 0; i < allPrices.length; i++) {
+            if (i >= period - 1) {
+                const slice = allPrices.slice(i - period + 1, i + 1);
+                const sum = slice.reduce((a, b) => a + b, 0);
+                ma.push({ x: data.ohlcv_data[i].x, y: sum / period });
+            } else {
+                ma.push({ x: data.ohlcv_data[i].x, y: null }); // 데이터 부족 시 null
+            }
+        }
+        return ma;
+    };
+    data.ma_data.MA20 = calculateMA(20);
+    data.ma_data.MA50 = calculateMA(50);
+
+    data.xMin = data.ohlcv_data.length ? new Date(data.ohlcv_data[0].x).getTime() : undefined;
+    data.xMax = data.ohlcv_data.length ? new Date(data.ohlcv_data[data.ohlcv_data.length - 1].x).getTime() : undefined;
+    
+    return data;
+}
+
+// x, y 객체 배열로 변환 (타임스탬프 변환 포함)
+function toXY(ds) {
+    if (!Array.isArray(ds)) return [];
+    return ds.map(d => {
+        // 날짜 문자열을 타임스탬프로 변환
+        const timestamp = new Date(d.x).getTime(); 
+        return { x: timestamp, y: d.y };
+    }).filter(p => !isNaN(p.x) && p.y !== null && p.y !== undefined);
+}
+
+/* ==========================================================
+ * 📈 차트 빌드 함수 (가격)
+ * ========================================================== */
+function buildPriceChart(ctx, payload) {
+    const candleData = payload.ohlcv_data.map(d => ({ 
+        x: new Date(d.x).getTime(), 
+        o: d.o, h: d.h, l: d.l, c: d.c 
+    }));
+    
+    const datasets = [
+        // 봉차트 데이터셋 (Custom Plugin 사용)
+        { 
+            type: 'candlestick', 
+            label: '가격 (Candle)', 
+            data: candleData, 
+            parsing: false, 
+            pointRadius: 0,
+        },
+        // 이동평균선 데이터셋
+        { type: 'line', label: 'MA20', data: toXY(payload.ma_data.MA20), parsing: false, pointRadius: 0, borderWidth: 1.2, borderColor: '#22c55e', tension: 0.1, hidden: false },
+        { type: 'line', label: 'MA50', data: toXY(payload.ma_data.MA50), parsing: false, pointRadius: 0, borderWidth: 1.2, borderColor: '#7c3aed', tension: 0.1, hidden: false },
+    ].filter(ds => ds.data?.length > 0);
+
+    priceChart = new Chart(ctx, {
+        data: { datasets: datasets },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                x: {
+                    type: 'time', 
+                    time: { unit: 'day', tooltipFormat: 'yyyy-MM-dd' }, 
+                    grid: softDashedGrid, 
+                    min: payload.xMin, max: payload.xMax,
+                    // X축 레이블을 숨깁니다 (MACD 차트와 겹치지 않도록)
+                    ticks: { display: false } 
+                },
+                y: { 
+                    beginAtZero: false, 
+                    ticks: { callback: v => v.toLocaleString() },
+                    grid: softDashedGrid, 
+                }
+            },
+            plugins: {
+                legend: { display: true, position: 'top' },
+                candlestick_drawer: { 
+                    upColor: '#ef4444', 
+                    downColor: '#3b82f6', 
+                },
+                tooltip: {
+                     callbacks: {
+                        label: (context) => {
+                            if (context.dataset.type === 'candlestick') {
+                                const data = context.raw;
+                                return [
+                                    `시가: ${data.o.toLocaleString()}`,
+                                    `고가: ${data.h.toLocaleString()}`,
+                                    `저가: ${data.l.toLocaleString()}`,
+                                    `종가: ${data.c.toLocaleString()}`
+                                ];
+                            }
+                            return `${context.dataset.label}: ${context.parsed.y.toLocaleString()}`;
+                        }
+                    }
+                },
+                // 🚀 줌/팬 설정 (핵심 기능)
+                zoom: {
+                    zoom: {
+                        wheel: { enabled: true, modifierKey: 'alt' }, // Alt + 휠로 줌
+                        pinch: { enabled: true },
+                        mode: 'x', // X축으로만 줌
+                        // 줌 이벤트 발생 시 MACD 차트 동기화
+                        onZoom: ({ chart }) => syncCharts(chart, macdChart),
+                    },
+                    pan: {
+                        enabled: true, // 드래그(팬) 활성화
+                        mode: 'x',
+                        // 팬 이벤트 발생 시 MACD 차트 동기화
+                        onPan: ({ chart }) => syncCharts(chart, macdChart),
+                    }
+                }
+            }
+        }
+    });
+}
+
+/* ==========================================================
+ * 📈 차트 빌드 함수 (MACD)
+ * ========================================================== */
+function buildMacdChart(ctx, payload) {
+    const datasets = [
+        { type: 'line', label: 'MACD', data: toXY(payload.macd_data.MACD), parsing: false, pointRadius: 0, borderWidth: 1.2, borderColor: '#111827', tension: 0.1 },
+        { type: 'line', label: 'Signal', data: toXY(payload.macd_data.Signal), parsing: false, pointRadius: 0, borderWidth: 1.2, borderColor: '#f43f5e', tension: 0.1 },
+        { 
+            type: 'bar', label: 'Hist', data: toXY(payload.macd_data.Histogram), parsing: false, 
+            backgroundColor: (ctx) => ctx.parsed.y > 0 ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)',
+        },
+    ].filter(ds => ds.data?.length > 0);
+
+    macdChart = new Chart(ctx, {
+        data: { datasets: datasets },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: {
+                x: { 
+                    type: 'time', 
+                    time: { unit: 'day', tooltipFormat: 'yyyy-MM-dd' }, 
+                    grid: softDashedGrid,
+                    min: payload.xMin, max: payload.xMax,
+                },
+                y: { 
+                    beginAtZero: true,
+                    grid: softDashedGrid
+                }
+            },
+            plugins: {
+                legend: { display: true, position: 'top' },
+                // 🚀 줌/팬 설정 (핵심 기능)
+                zoom: {
+                    zoom: {
+                        wheel: { enabled: true, modifierKey: 'alt' }, // Alt + 휠로 줌
+                        pinch: { enabled: true },
+                        mode: 'x',
+                        // 줌 이벤트 발생 시 Price 차트 동기화
+                        onZoom: ({ chart }) => syncCharts(chart, priceChart),
+                    },
+                    pan: {
+                        enabled: true,
+                        mode: 'x',
+                        // 팬 이벤트 발생 시 Price 차트 동기화
+                        onPan: ({ chart }) => syncCharts(chart, priceChart),
+                    }
+                }
+            }
+        }
+    });
+}
+
+/* ==========================================================
+ * 🚀 초기 실행
+ * ========================================================== */
+document.addEventListener("DOMContentLoaded", () => {
+    // CDN 로드가 되었는지 확인합니다.
+    if (typeof Chart === 'undefined' || typeof ChartZoom === 'undefined') {
+        alert("외부 라이브러리(CDN) 로드에 실패했습니다. 이 코드는 외부망에서 실행해야 합니다.");
+        return;
+    }
+
+    const dummyData = generateDummyData();
+    if (!dummyData.ohlcv_data.length) {
+        alert("데이터가 없습니다.");
+        return;
+    }
+
+    // --- 차트 생성 ---
+    const priceCtx = document.getElementById('priceChart').getContext('2d');
+    buildPriceChart(priceCtx, dummyData);
+    
+    const macdCtx = document.getElementById('macdChart').getContext('2d');
+    buildMacdChart(macdCtx, dummyData);
+});
+</script>
+
+</body>
+</html>

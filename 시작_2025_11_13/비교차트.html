@@ -1,0 +1,326 @@
+﻿
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🧪 차트 줌/팬 기능 비교 테스트</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+/* 폰트 및 배경 설정 */
+body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; padding: 20px; }
+/* 차트 컨테이너 스타일 */
+.chart-canvas-wrap {
+  width: 100%;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 15px;
+  margin-bottom: 20px;
+}
+.chart-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 10px;
+  padding-left: 5px;
+  border-left: 4px solid;
+}
+/* 캔버스 크기 지정 */
+.chart-area { width: 100%; height: 320px; }
+.macd-area { width: 100%; height: 200px; }
+
+/* 반응형 레이아웃 */
+@media (max-width: 1024px) {
+  .grid-cols-1-lg-2 { grid-template-columns: 1fr; }
+}
+</style>
+
+<!-- Chart.js 및 관련 라이브러리 로드 -->
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+
+</head>
+<body>
+
+<h1 class="text-3xl font-extrabold mb-8 text-center text-indigo-700">📈 차트 줌/팬 기능 비교 테스트 화면</h1>
+
+<div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 grid-cols-1-lg-2">
+  
+  <!-- 📌 1. 사용자님의 차트 (User's Fixed Chart) 영역 -->
+  <div class="bg-white p-6 rounded-xl shadow-xl border-t-8 border-indigo-500">
+    <h2 class="chart-title border-indigo-500 text-indigo-600">사용자님의 차트 (User's Fixed Chart)</h2>
+    <p class="text-sm text-gray-600 mb-4">
+      **가격 차트:** XY축(상하좌우) 줌/팬 허용 (Y축도 움직임) | **MACD 차트:** XY축(상하좌우) 줌/팬 허용
+    </p>
+
+    <div class="flex justify-between items-center mb-3">
+        <span class="text-xs text-indigo-500 font-medium">마우스 휠(줌), 드래그(팬) 테스트</span>
+        <button onclick="resetChart('user')" class="bg-indigo-600 text-white px-4 py-2 rounded-md text-sm hover:bg-indigo-700 transition shadow-md">
+          🔄 초기화 (User)
+        </button>
+    </div>
+
+    <div class="chart-canvas-wrap">
+      <!-- 캔버스: 가격 차트 -->
+      <canvas id="userPriceChart" class="chart-area"></canvas>
+    </div>
+    <div class="chart-canvas-wrap">
+      <!-- 캔버스: MACD 차트 -->
+      <canvas id="userMacdChart" class="macd-area"></canvas>
+    </div>
+  </div>
+
+  <!-- 📌 2. 최적화된 차트 (Optimized Configuration) 영역 -->
+  <div class="bg-white p-6 rounded-xl shadow-xl border-t-8 border-red-500">
+    <h2 class="chart-title border-red-500 text-red-600">최적화된 차트 (Optimized Chart)</h2>
+    <p class="text-sm text-gray-600 mb-4">
+      **가격 차트:** X축 줌/팬만 허용, **Y축 팬/줌 잠금** (가격 스케일 안정화) | **MACD 차트:** XY축 줌/팬 허용
+    </p>
+    
+    <div class="flex justify-between items-center mb-3">
+        <span class="text-xs text-red-500 font-medium">Y축 잠금으로 인한 스케일 안정성 확인</span>
+        <button onclick="resetChart('optimized')" class="bg-red-600 text-white px-4 py-2 rounded-md text-sm hover:bg-red-700 transition shadow-md">
+          🔄 초기화 (Optimized)
+        </button>
+    </div>
+
+    <div class="chart-canvas-wrap">
+      <!-- 캔버스: 가격 차트 (Y축 잠금) -->
+      <canvas id="optimizedPriceChart" class="chart-area"></canvas>
+    </div>
+    <div class="chart-canvas-wrap">
+      <!-- 캔버스: MACD 차트 -->
+      <canvas id="optimizedMacdChart" class="macd-area"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+// 전역 차트 인스턴스 저장소
+let userPriceChart = null;
+let userMacdChart = null;
+let optimizedPriceChart = null;
+let optimizedMacdChart = null;
+
+/* ==========================================================
+ * 📜 헬퍼 함수: 더미 데이터 생성
+ * ========================================================== */
+function generateDummyData() {
+    // 실제 API를 호출하는 대신 테스트용 더미 데이터를 생성합니다.
+    const data = { ohlcv_data: [], ma_data: { MA20: [], MA50: [], MA200: [] }, macd_data: { MACD: [], Signal: [], Histogram: [] } };
+    const days = 100;
+    let basePrice = 10000;
+    const allPrices = [];
+
+    for (let i = 0; i < days; i++) {
+        const date = new Date();
+        date.setDate(date.getDate() - days + i);
+        const dateString = date.toISOString().split('T')[0];
+
+        // 가격 변동 시뮬레이션
+        const fluctuation = Math.random() * 200 - 100;
+        basePrice = Math.max(8000, basePrice + fluctuation); // 최소 가격 설정
+        const open = basePrice + (Math.random() * 20 - 10);
+        const close = basePrice + (Math.random() * 20 - 10);
+        const high = Math.max(open, close) + (Math.random() * 5);
+        const low = Math.min(open, close) - (Math.random() * 5);
+
+        data.ohlcv_data.push({ x: dateString, o: open, h: high, l: low, c: close });
+        allPrices.push(close);
+
+        // MACD (단순화된 시뮬레이션)
+        const macd_val = (Math.sin(i / 10) * 50) + (Math.cos(i / 50) * 100);
+        const signal_val = macd_val * 0.9;
+        const hist_val = macd_val - signal_val;
+
+        data.macd_data.MACD.push({ x: dateString, y: macd_val });
+        data.macd_data.Signal.push({ x: dateString, y: signal_val });
+        data.macd_data.Histogram.push({ x: dateString, y: hist_val });
+    }
+    
+    // 이동 평균 데이터는 OHLVC 데이터를 기반으로 계산됩니다. (간략화)
+    const calculateMA = (period) => {
+        const ma = [];
+        for (let i = 0; i < allPrices.length; i++) {
+            if (i >= period - 1) {
+                const slice = allPrices.slice(i - period + 1, i + 1);
+                const sum = slice.reduce((a, b) => a + b, 0);
+                ma.push({ x: data.ohlcv_data[i].x, y: sum / period });
+            }
+        }
+        return ma;
+    };
+    data.ma_data.MA20 = calculateMA(20);
+    data.ma_data.MA50 = calculateMA(50);
+    data.ma_data.MA200 = calculateMA(200);
+
+    // X축 시작/끝 타임스탬프
+    data.xMin = data.ohlcv_data.length ? new Date(data.ohlcv_data[0].x).getTime() : undefined;
+    data.xMax = data.ohlcv_data.length ? new Date(data.ohlcv_data[data.ohlcv_data.length - 1].x).getTime() : undefined;
+    
+    return data;
+}
+
+// x, y 객체 배열로 변환 (타임스탬프 변환 포함)
+function toXY(ds) {
+    if (!Array.isArray(ds)) return [];
+    return ds.map(d => {
+        const timestamp = new Date(d.x).getTime();
+        return { x: timestamp, y: d.y };
+    }).filter(p => !isNaN(p.x) && p.y !== null && p.y !== undefined && !isNaN(p.y));
+}
+
+
+/* ==========================================================
+ * 📈 차트 빌드 함수 (공통 로직)
+ * ========================================================== */
+function buildPriceChart(ctx, payload, zoomConfig) {
+    const ohlcData = payload.ohlcv_data.map(d => ({ 
+        x: new Date(d.x).getTime(), o: d.o, h: d.h, l: d.l, c: d.c 
+    }));
+    
+    const datasets = [
+        // 캔들스틱 데이터셋
+        { type: 'candlestick', label: 'OHLCV', data: ohlcData, parsing: false, borderWidth: 1.3 },
+        // 이동평균선 데이터셋
+        { type: 'line', label: 'MA20', data: toXY(payload.ma_data.MA20), parsing: false, pointRadius: 0, borderWidth: 1.2, borderColor: '#22c55e' },
+        { type: 'line', label: 'MA50', data: toXY(payload.ma_data.MA50), parsing: false, pointRadius: 0, borderWidth: 1.2, borderColor: '#7c3aed' },
+        { type: 'line', label: 'MA200', data: toXY(payload.ma_data.MA200), parsing: false, pointRadius: 0, borderWidth: 1.2, borderColor: '#3b82f6' },
+    ];
+
+    return new Chart(ctx, {
+        data: { datasets: datasets },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: {
+                x: {
+                    type: 'time', time: { tooltipFormat: 'yyyy-MM-dd' }, grid: { display: false },
+                    min: payload.xMin, max: payload.xMax // 초기 X축 범위 설정
+                },
+                y: { beginAtZero: false, ticks: { callback: v => v.toLocaleString() } }
+            },
+            plugins: {
+                legend: { display: true, position: 'top' },
+                zoom: {
+                    ...zoomConfig, // 줌/팬 설정 (mode: 'x' 또는 'xy')
+                    limits: { // 💡 X축 범위 제한 추가
+                        x: { min: payload.xMin, max: payload.xMax }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function buildMacdChart(ctx, payload, zoomConfig) {
+    const histData = toXY(payload.macd_data.Histogram);
+    
+    const datasets = [
+        { type: 'line', label: 'MACD', data: toXY(payload.macd_data.MACD), parsing: false, pointRadius: 0, borderWidth: 1.2, borderColor: '#111827' },
+        { type: 'line', label: 'Signal', data: toXY(payload.macd_data.Signal), parsing: false, pointRadius: 0, borderWidth: 1.2, borderColor: '#f43f5e' },
+        { 
+            type: 'bar', label: 'Hist', data: histData, parsing: false, 
+            backgroundColor: (ctx) => ctx.parsed.y > 0 ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)',
+        },
+    ];
+
+    return new Chart(ctx, {
+        data: { datasets: datasets.filter(ds => ds.data?.length > 0) },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: {
+                x: { type: 'time', time: { tooltipFormat: 'yyyy-MM-dd' }, grid: { display: false } },
+                y: { beginAtZero: false }
+            },
+            plugins: {
+                legend: { display: true, position: 'top' },
+                zoom: {
+                    ...zoomConfig, // 줌/팬 설정 (mode: 'xy')
+                    limits: { // 💡 X축 범위 제한 추가
+                        x: { min: payload.xMin, max: payload.xMax }
+                    }
+                }
+            }
+        }
+    });
+}
+
+/* ==========================================================
+ * 🛠️ 줌/팬 설정 정의
+ * ========================================================== */
+
+// 1. 사용자님의 차트 설정 (가격 차트, MACD 차트 모두 상하좌우 팬/줌)
+const USER_ZOOM_CONFIG_PRICE = {
+    pan: { enabled: true, mode: 'xy', threshold: 10 }, // xy 모드로 설정
+    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' } // xy 모드로 설정
+};
+const USER_ZOOM_CONFIG_MACD = {
+    pan: { enabled: true, mode: 'xy', threshold: 10 },
+    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' }
+};
+
+// 2. 최적화된 차트 설정 (가격 차트 Y축 잠금, MACD 차트는 XY축 유지)
+const OPTIMIZED_ZOOM_CONFIG_PRICE = {
+    pan: { enabled: true, mode: 'x', threshold: 10 }, // X축 팬만 허용 (Y축 잠금)
+    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' } // X축 줌만 허용 (Y축 잠금)
+};
+const OPTIMIZED_ZOOM_CONFIG_MACD = {
+    pan: { enabled: true, mode: 'xy', threshold: 10 },
+    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' }
+};
+
+/* ==========================================================
+ * 🔄 초기화 함수
+ * ========================================================== */
+window.resetChart = function(type) {
+    if (type === 'user') {
+        userPriceChart?.resetZoom();
+        userMacdChart?.resetZoom();
+        console.log("User Charts Zoom Reset.");
+    } else if (type === 'optimized') {
+        optimizedPriceChart?.resetZoom();
+        optimizedMacdChart?.resetZoom();
+        console.log("Optimized Charts Zoom Reset.");
+    }
+}
+
+
+/* ==========================================================
+ * 🚀 초기 실행
+ * ========================================================== */
+document.addEventListener("DOMContentLoaded", () => {
+    // 💡 차트 라이브러리 컨트롤러 등록
+    try {
+        Chart.register(Chart.FinancialController, Chart.OhlcController);
+    } catch(e) {
+        // 이미 등록된 경우 오류 무시
+    }
+
+    const dummyData = generateDummyData();
+    console.log("Dummy data generated for 100 days.");
+
+    // --- 1. 사용자님의 차트 (User's Fixed Chart) ---
+    // User Price: XY Pan/Zoom
+    const userPriceCtx = document.getElementById('userPriceChart').getContext('2d');
+    userPriceChart = buildPriceChart(userPriceCtx, dummyData, USER_ZOOM_CONFIG_PRICE);
+    
+    // User MACD: XY Pan/Zoom
+    const userMacdCtx = document.getElementById('userMacdChart').getContext('2d');
+    userMacdChart = buildMacdChart(userMacdCtx, dummyData, USER_ZOOM_CONFIG_MACD);
+
+    // --- 2. 최적화된 차트 (Optimized Chart) ---
+    // Optimized Price: X-only Pan/Zoom (Recommended for price stability)
+    const optimizedPriceCtx = document.getElementById('optimizedPriceChart').getContext('2d');
+    optimizedPriceChart = buildPriceChart(optimizedPriceCtx, dummyData, OPTIMIZED_ZOOM_CONFIG_PRICE);
+    
+    // Optimized MACD: XY Pan/Zoom
+    const optimizedMacdCtx = document.getElementById('optimizedMacdChart').getContext('2d');
+    optimizedMacdChart = buildMacdChart(optimizedMacdCtx, dummyData, OPTIMIZED_ZOOM_CONFIG_MACD);
+});
+</script>
+
+</body>
+</html>

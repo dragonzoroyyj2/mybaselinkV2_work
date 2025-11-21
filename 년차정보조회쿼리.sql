@@ -1,3 +1,9 @@
+INSERT INTO "MYBASEUSER"."HP040D" (YYYY, ENTITY, EMPNO, EMPNM, BIZ_SECTION, DEPT_NM, PAYCD_NM, PAYGD1_NM, POSCD, ENTDT, YY_VAC_FR, YY_VAC_TO, YY_VAC_FR_TO, VAC_LIST_YY_FR, VAC_LIST_YY_TO, USABLE_VAC_DD_CNT, USE_CNT, YEAR_USE_CNT, HALF_USE_CNT, HALF_HALF_USE_CNT, TOT_YY_VAC_DD_CNT, YY_VAC_DD_CNT, YY_VAC_DD_CNT_ADD, YY_VAC_DD_CNT_ADJ, YY_VAC_DD_CNT_SUB) VALUES ('2023', '2022', '2004109', '유림', '7', '전북지사', '월급직', '전임 9등급', '12', '2020-11-30', '2023-11-16', '2024-11-15', '2023-11-16 ~ 2024-11-15', '2023-11-16', '2024-11-15', '0', '16', '14', '1', '1', '16', '15', '1', '0', '0')
+
+커밋 성공
+
+
+
 /* ======================================================================
  * my_select_FINAL_v7.2
  * 요구사항 완전 반영:
@@ -231,3 +237,4 @@ FinalResult AS (
 SELECT *
 FROM FinalResult
 ORDER BY empno, VAC_FR_SORT DESC;
+

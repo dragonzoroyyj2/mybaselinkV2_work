@@ -1,3 +1,159 @@
+최종
+--------------------------------
+/* ======================================================================
+ * 🌟 연차 이월 흐름 계산기 최종 쿼리 🌟
+ * ----------------------------------------------------------------------
+ * 🎯 목표:
+ * 모든 직원의 연차 기간(VAC_FR ~ VAC_TO) 순서대로, 이월된 값을 정확히 누적하여
+ * 최종 잔여/사용/지급 합계를 계산하는 자동화된 쿼리입니다.
+ *
+ * 🛑 핵심 규칙 (고객 시스템 반영) 🛑
+ * 1. 기간 우선 원칙: 연도(YYYY)가 아닌, VAC 시작일(VAC_FR)을 기준으로 순서(rn)를 정합니다.
+ * (김근수처럼 연도가 달라도 VAC 기간이 같으면 하나로 묶어 처리됩니다.)
+ * 2. 하이브리드 잔여 계산:
+ * - FINAL_잔여일수는 (usable_vac_dd_cnt + FINAL_지급이월) - FINAL_사용이월 공식을 따릅니다.
+ * (일반적인 지급-사용 계산이 아닌, 'usable' 컬럼을 잔여의 기준으로 삼습니다.)
+ * 3. 이월 소스 지정:
+ * - FINAL_지급이월(다음 해에 사용 가능한 이월액)은 **직전 기간의 APPROVED_CARRYOVER_DD (사용이월 승인액)**
+ * 컬럼 값을 그대로 가져옵니다. (FINAL_잔여일수 값을 가져오지 않습니다.)
+ *
+ * ⚙️ 쿼리 주요 구조
+ * - 1~5단계 (준비): 연차 데이터를 불러오고, 기간별로 묶어(VacGroup) 순번(VacRank)을 부여하며,
+ * 이월 계산을 위한 최종 입력 데이터(CalcInput)를 준비합니다.
+ * - 6단계 (RecursiveCalc): 순번(rn)을 따라 이전 기간의 결과를 다음 기간에 누적시키는 핵심 재귀 계산을 수행합니다.
+ * - 7단계 (FinalResult): 계산된 최종 값들을 원본 데이터와 합쳐서 출력합니다.
+ * ---------------------------------------------------------------------- */
+
+WITH BaseData AS (
+    /* 1. 기본 데이터 준비 및 APPROVED_CARRYOVER_DD 계산 */
+    SELECT
+        T.yyyy, T.entity, T.empno, T.empnm, T.biz_section, T.dept_nm, T.paycd_nm, T.paygd1_nm, T.poscd, T.entdt, T.retdt,
+        T.yy_vac_fr  AS vac_fr_sort, T.yy_vac_to  AS vac_to_sort,
+        
+        T.usable_vac_dd_cnt, 
+        T.use_cnt, T.tot_yy_vac_dd_cnt, 
+
+        CASE WHEN NVL(R.req_dd_cnt,0) <= T.usable_vac_dd_cnt 
+             THEN NVL(R.req_dd_cnt,0)
+             ELSE 0
+        END AS approved_carryover_dd /* 현재 기간의 사용이월 승인액 */
+
+    FROM hp040d T
+    LEFT JOIN hw045m R 
+      ON T.empno = R.req_empno AND T.yy_vac_fr = R.occr_date
+),
+
+VacGroup AS (
+    /* 2. 중복 제거 및 데이터 그룹화 (동일 기간 데이터 MAX 처리) */
+    SELECT empno, vac_fr_sort, vac_to_sort, MAX(usable_vac_dd_cnt) AS usable_vac_dd_cnt, MAX(use_cnt) AS use_cnt,
+        MAX(tot_yy_vac_dd_cnt) AS tot_yy_vac_dd_cnt, MAX(approved_carryover_dd) AS approved_carryover_dd
+    FROM BaseData GROUP BY empno, vac_fr_sort, vac_to_sort
+),
+
+VacRank AS (
+    /* 3. 기간 순서 부여: 사원별로 연차 시작일 기준 순번(rn)을 부여 */
+    SELECT V.*, ROW_NUMBER() OVER(PARTITION BY empno ORDER BY vac_fr_sort ASC) AS rn
+    FROM VacGroup V
+),
+
+CarryOverEmployees AS (
+    /* 4. 이월 대상자 확인 */
+    SELECT empno FROM BaseData WHERE approved_carryover_dd > 0 GROUP BY empno
+),
+
+CalcInput AS (
+    /* 5. 최종 입력 데이터 준비 (rn 및 is_carryover_employee 플래그 결합) */
+    SELECT V.*, CASE WHEN COE.empno IS NOT NULL THEN 1 ELSE 0 END AS is_carryover_employee
+    FROM VacRank V LEFT JOIN CarryOverEmployees COE ON V.empno = COE.empno
+),
+
+RecursiveCalc (
+    /* 6. 재귀 쿼리 (Recursive CTE): 정의부 항목 순서 변경 */
+    empno, rn, approved_carryover_dd,
+    final_remain, final_use_total, final_pay_total, final_pay_carry, is_carryover_employee
+) AS (
+
+    /* 6-1) 앵커 멤버: rn = 1 (계산 시작점) */
+    SELECT
+        empno, rn, C.approved_carryover_dd, 
+        
+        /* FINAL_잔여일수 (순서 1): usable - approved_co */
+        (C.usable_vac_dd_cnt - C.approved_carryover_dd) AS final_remain,
+        
+        /* FINAL_사용합계 (순서 2): use_cnt + approved_co */
+        (C.use_cnt + C.approved_carryover_dd) AS final_use_total,
+        
+        /* FINAL_지급합계 (순서 3): tot_yy_vac_dd_cnt (이월 0) */
+        C.tot_yy_vac_dd_cnt AS final_pay_total, 
+        
+        /* FINAL_지급이월 (순서 4): 첫 기간이므로 0 */
+        0.0 AS final_pay_carry,               
+        
+        is_carryover_employee
+    FROM CalcInput C WHERE rn = 1
+
+    UNION ALL
+
+    /* 6-2) 재귀 멤버: rn >= 2 (이전 결과를 가져와 현재 기간 계산) */
+    SELECT
+        C.empno, C.rn, C.approved_carryover_dd, 
+        
+        /* FINAL_잔여일수 (순서 1): (usable + 지급이월) - 사용이월 */
+        ((C.usable_vac_dd_cnt + 
+            CASE WHEN C.is_carryover_employee = 1 THEN R.approved_carryover_dd ELSE 0.0 END
+        ) - C.approved_carryover_dd) AS final_remain,
+        
+        /* FINAL_사용합계 (순서 2): use_cnt + approved_co */
+        (C.use_cnt + C.approved_carryover_dd) AS final_use_total,
+        
+        /* FINAL_지급합계 (순서 3): tot_yy_vac_dd_cnt + FINAL_지급이월 */
+        (C.tot_yy_vac_dd_cnt + 
+            CASE WHEN C.is_carryover_employee = 1 THEN R.approved_carryover_dd ELSE 0.0 END
+        ) AS final_pay_total,
+        
+        /* FINAL_지급이월 (순서 4): 이전 기간의 R.approved_carryover_dd 사용 (고객 요청 소스) */
+        CASE WHEN C.is_carryover_employee = 1 THEN R.approved_carryover_dd ELSE 0.0 END AS final_pay_carry,
+
+        C.is_carryover_employee
+    FROM CalcInput C
+    JOIN RecursiveCalc R
+      ON C.empno = R.empno AND C.rn = R.rn + 1
+),
+
+FinalResult AS (
+    /* 7. 최종 결과 조합 및 출력: 요청하신 순서대로 컬럼 재정렬 */
+    SELECT
+          B.YYYY, B.ENTITY, B.EMPNO, B.EMPNM, B.DEPT_NM, B.BIZ_SECTION, B.PAYCD_NM, B.PAYGD1_NM, B.POSCD, B.ENTDT, B.RETDT
+        ,B.VAC_FR_SORT, B.VAC_TO_SORT
+        ,B.USABLE_VAC_DD_CNT, B.USE_CNT, B.TOT_YY_VAC_DD_CNT, B.APPROVED_CARRYOVER_DD
+        ,' ------ ' AS separator
+        
+        /* 최종 출력 순서: 잔여일수, 사용합계, 지급합계, 지급이월 */
+        ,R.final_remain           AS FINAL_잔여일수 
+        ,R.final_use_total        AS FINAL_사용합계
+        ,R.final_pay_total        AS FINAL_지급합계
+        ,R.final_pay_carry        AS FINAL_지급이월
+
+        ,B.APPROVED_CARRYOVER_DD  AS FINAL_사용이월 /* (참고용) */
+        ,V.rn
+    FROM BaseData B
+    JOIN VacRank V
+        ON B.empno = V.empno AND B.vac_fr_sort = V.vac_fr_sort
+    LEFT JOIN RecursiveCalc R
+        ON V.empno = R.empno AND V.rn = R.rn
+)
+
+SELECT *
+FROM FinalResult
+ORDER BY empno, vac_fr_sort DESC;
+
+
+
+
+
+
+
+
 ******************************************************************************************************************************
     집에서 최종 잘되던거  그리고 sql로 할껀지 자바로 할껀지 판단해야함 모두 테스트해봐야 스크립트도 추가
 ******************************************************************************************************************************
@@ -1068,6 +1224,7 @@ FinalResult AS (
 SELECT *
 FROM FinalResult
 ORDER BY empno, VAC_FR_SORT DESC;
+
 
 
 

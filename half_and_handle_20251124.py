@@ -6,6 +6,8 @@
     - 기능: 종목 분석 필터링 (analyze 모드), 차트 시각화 데이터 생성 (chart 모드)
     - 수정: --symbol 인자를 통한 단일 종목 분석 기능 추가
     - 🔑 추가: Half-and-Handle 패턴 감지 로직 추가
+    
+"C:\Users\User\AppData\Local\Programs\Python\Python310\python.exe" C:\Test\half_and_handle.py --mode chart --symbol 005930 --chart_period 300
 """
 
 import os
@@ -828,4 +830,5 @@ def main():
         )
 
 if __name__ == "__main__":
+
     main()

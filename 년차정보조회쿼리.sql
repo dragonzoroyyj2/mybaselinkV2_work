@@ -1,3 +1,143 @@
+진짜최종??
+
+/* ======================================================================
+ * 🌟 연차 이월 흐름 계산기 최종 쿼리 (통합 버전) 🌟
+ * ----------------------------------------------------------------------
+ * [주요 특징 및 규칙 반영]
+ * 1. 기간 순서 기반 재귀: VAC_FR 기준으로 순번(rn)을 부여하여 이월 값을 누적함.
+ * 2. 하이브리드 잔여 계산: FINAL_잔여일수는 (usable + 지급이월) - 사용이월 공식을 따름.
+ * 3. 이월 소스 지정: FINAL_지급이월은 직전 기간의 APPROVED_CARRYOVER_DD (사용이월 승인액) 값을 가져옴.
+ * 4. 통합 구조: VacGroup 및 VacRank CTE를 'VacRankedInput' 하나로 통합하여 간결화.
+ * ---------------------------------------------------------------------- */
+
+WITH BaseData AS (
+    /* 1. 기본 데이터 준비 및 APPROVED_CARRYOVER_DD 계산 */
+    SELECT
+        T.yyyy, T.entity, T.empno, T.empnm, T.biz_section, T.dept_nm, T.paycd_nm, T.paygd1_nm, T.poscd, T.entdt, T.retdt,
+        T.yy_vac_fr  AS vac_fr_sort, T.yy_vac_to  AS vac_to_sort,
+        
+        T.usable_vac_dd_cnt, 
+        T.use_cnt, T.tot_yy_vac_dd_cnt, 
+
+        CASE WHEN NVL(R.req_dd_cnt,0) <= T.usable_vac_dd_cnt 
+             THEN NVL(R.req_dd_cnt,0)
+             ELSE 0
+        END AS approved_carryover_dd /* 현재 기간의 사용이월 승인액 */
+
+    FROM hp040d T
+    LEFT JOIN hw045m R 
+      ON T.empno = R.req_empno AND T.yy_vac_fr = R.occr_date
+),
+
+VacRankedInput AS (
+    /* 2&3. 기간 그룹화 (중복 제거) 및 순서 부여(rn) 통합 */
+    SELECT
+        empno, vac_fr_sort, vac_to_sort, 
+        MAX(usable_vac_dd_cnt) AS usable_vac_dd_cnt, 
+        MAX(use_cnt) AS use_cnt,
+        MAX(tot_yy_vac_dd_cnt) AS tot_yy_vac_dd_cnt, 
+        MAX(approved_carryover_dd) AS approved_carryover_dd,
+        
+        /* 그룹화된 결과에 바로 순번(rn)을 부여 */
+        ROW_NUMBER() OVER(PARTITION BY empno ORDER BY vac_fr_sort ASC) AS rn
+    FROM BaseData
+    GROUP BY empno, vac_fr_sort, vac_to_sort
+),
+
+CarryOverEmployees AS (
+    /* 4. 이월 대상자 확인 */
+    SELECT empno FROM BaseData WHERE approved_carryover_dd > 0 GROUP BY empno
+),
+
+CalcInput AS (
+    /* 5. 최종 입력 데이터 준비 (rn 및 is_carryover_employee 플래그 결합) */
+    SELECT V.*, CASE WHEN COE.empno IS NOT NULL THEN 1 ELSE 0 END AS is_carryover_employee
+    FROM VacRankedInput V LEFT JOIN CarryOverEmployees COE ON V.empno = COE.empno
+),
+
+RecursiveCalc (
+    /* 6. 재귀 쿼리 (Recursive CTE): 정의부 항목 순서 변경 */
+    empno, rn, approved_carryover_dd,
+    final_remain, final_use_total, final_pay_total, final_pay_carry, is_carryover_employee
+) AS (
+
+    /* 6-1) 앵커 멤버: rn = 1 (계산 시작점) */
+    SELECT
+        empno, rn, C.approved_carryover_dd, 
+        
+        /* FINAL_잔여일수 (순서 1): usable - approved_co */
+        (C.usable_vac_dd_cnt - C.approved_carryover_dd) AS final_remain,
+        
+        /* FINAL_사용합계 (순서 2): use_cnt + approved_co */
+        (C.use_cnt + C.approved_carryover_dd) AS final_use_total,
+        
+        /* FINAL_지급합계 (순서 3): tot_yy_vac_dd_cnt (이월 0) */
+        C.tot_yy_vac_dd_cnt AS final_pay_total, 
+        
+        /* FINAL_지급이월 (순서 4): 첫 기간이므로 0 */
+        0.0 AS final_pay_carry,               
+        
+        is_carryover_employee
+    FROM CalcInput C WHERE rn = 1
+
+    UNION ALL
+
+    /* 6-2) 재귀 멤버: rn >= 2 (이전 결과를 가져와 현재 기간 계산) */
+    SELECT
+        C.empno, C.rn, C.approved_carryover_dd, 
+        
+        /* FINAL_잔여일수 (순서 1): (usable + 지급이월) - 사용이월 */
+        ((C.usable_vac_dd_cnt + 
+            CASE WHEN C.is_carryover_employee = 1 THEN R.approved_carryover_dd ELSE 0.0 END
+        ) - C.approved_carryover_dd) AS final_remain,
+        
+        /* FINAL_사용합계 (순서 2): use_cnt + approved_co */
+        (C.use_cnt + C.approved_carryover_dd) AS final_use_total,
+        
+        /* FINAL_지급합계 (순서 3): tot_yy_vac_dd_cnt + FINAL_지급이월 */
+        (C.tot_yy_vac_dd_cnt + 
+            CASE WHEN C.is_carryover_employee = 1 THEN R.approved_carryover_dd ELSE 0.0 END
+        ) AS final_pay_total,
+        
+        /* FINAL_지급이월 (순서 4): 이전 기간의 R.approved_carryover_dd 사용 (고객 요청 소스) */
+        CASE WHEN C.is_carryover_employee = 1 THEN R.approved_carryover_dd ELSE 0.0 END AS final_pay_carry,
+
+        C.is_carryover_employee
+    FROM CalcInput C
+    JOIN RecursiveCalc R
+      ON C.empno = R.empno AND C.rn = R.rn + 1
+),
+
+FinalResult AS (
+    /* 7. 최종 결과 조합 및 출력: 요청하신 순서대로 컬럼 재정렬 */
+    SELECT
+          B.YYYY, B.ENTITY, B.EMPNO, B.EMPNM, B.DEPT_NM, B.BIZ_SECTION, B.PAYCD_NM, B.PAYGD1_NM, B.POSCD, B.ENTDT, B.RETDT
+        ,B.VAC_FR_SORT, B.VAC_TO_SORT
+        ,B.USABLE_VAC_DD_CNT, B.USE_CNT, B.TOT_YY_VAC_DD_CNT, B.APPROVED_CARRYOVER_DD
+        ,' ------ ' AS separator
+        
+        /* 최종 출력 순서: 잔여일수, 사용합계, 지급합계, 지급이월 */
+        ,R.final_remain           AS FINAL_잔여일수 
+        ,R.final_use_total        AS FINAL_사용합계
+        ,R.final_pay_total        AS FINAL_지급합계
+        ,R.final_pay_carry        AS FINAL_지급이월
+
+        ,B.APPROVED_CARRYOVER_DD  AS FINAL_사용이월 /* (참고용) */
+        ,V.rn
+    FROM BaseData B
+    JOIN VacRankedInput V 
+        ON B.empno = V.empno AND B.vac_fr_sort = V.vac_fr_sort
+    LEFT JOIN RecursiveCalc R
+        ON V.empno = R.empno AND V.rn = R.rn
+)
+
+SELECT *
+FROM FinalResult
+ORDER BY empno, vac_fr_sort DESC;
+    
+
+
+
 최종
 --------------------------------
 /* ======================================================================
@@ -1224,6 +1364,7 @@ FinalResult AS (
 SELECT *
 FROM FinalResult
 ORDER BY empno, VAC_FR_SORT DESC;
+
 
 
 
